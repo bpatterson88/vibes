@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drawing App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: white;
+            color: #333;
+            overflow: hidden;
+        }
+
+        .controls {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 8px;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+        }
+
+        button {
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            color: #666;
+            transition: all 0.2s ease;
+        }
+
+        button:hover {
+            background: #f8f8f8;
+            border-color: #bbb;
+        }
+
+        button.active {
+            background: #333;
+            color: white;
+            border-color: #333;
+        }
+
+        .canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #canvas {
+            display: block;
+        }
+
+        .brush-size {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        input[type="range"] {
+            width: 60px;
+        }
+
+        .size-display {
+            min-width: 20px;
+            text-align: center;
+            font-size: 10px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button id="drawBtn" class="active">Draw</button>
+        <button id="clearBtn">Clear</button>
+        
+        <div class="brush-size">
+            <span>Size:</span>
+            <input type="range" id="brushSize" min="1" max="50" value="5">
+            <span class="size-display" id="sizeDisplay">5</span>
+        </div>
+    </div>
+
+    <div class="canvas-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+        // Initialize Fabric.js canvas
+        const canvas = new fabric.Canvas('canvas', {
+            isDrawingMode: true,
+            backgroundColor: 'white'
+        });
+
+        // Set canvas size to fill viewport
+        function resizeCanvas() {
+            canvas.setDimensions({
+                width: window.innerWidth,
+                height: window.innerHeight
+            });
+        }
+
+        // Initialize canvas size
+        resizeCanvas();
+
+        // Rainbow drawing implementation
+        let hue = 0;
+        let isDrawing = false;
+        let pathPoints = [];
+        let currentBrushSize = 5;
+        
+        // Disable default drawing mode to implement custom rainbow drawing
+        canvas.isDrawingMode = false;
+        
+        // Custom rainbow drawing events
+        canvas.on('mouse:down', function(e) {
+            isDrawing = true;
+            hue = Math.random() * 360; // Start with random color
+            pathPoints = [];
+            
+            const pointer = canvas.getPointer(e.e);
+            pathPoints.push({ x: pointer.x, y: pointer.y, hue: hue });
+        });
+        
+        canvas.on('mouse:move', function(e) {
+            if (!isDrawing) return;
+            
+            const pointer = canvas.getPointer(e.e);
+            hue = (hue + 3) % 360; // Increment hue for rainbow effect
+            pathPoints.push({ x: pointer.x, y: pointer.y, hue: hue });
+            
+            drawRainbowPath();
+        });
+        
+        canvas.on('mouse:up', function(e) {
+            isDrawing = false;
+            pathPoints = [];
+        });
+        
+        function drawRainbowPath() {
+            if (pathPoints.length < 2) return;
+            
+            // Draw only the latest segment to avoid redrawing everything
+            const i = pathPoints.length - 1;
+            const startPoint = pathPoints[i-1];
+            const endPoint = pathPoints[i];
+            
+            const line = new fabric.Line([
+                startPoint.x, startPoint.y,
+                endPoint.x, endPoint.y
+            ], {
+                stroke: `hsl(${startPoint.hue}, 80%, 55%)`,
+                strokeWidth: currentBrushSize,
+                strokeLineCap: 'round',
+                selectable: false,
+                evented: false
+            });
+            
+            canvas.add(line);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', resizeCanvas);
+
+        // Get DOM elements
+        const drawBtn = document.getElementById('drawBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const brushSize = document.getElementById('brushSize');
+        const sizeDisplay = document.getElementById('sizeDisplay');
+
+        // Drawing mode toggle
+        drawBtn.addEventListener('click', () => {
+            canvas.isDrawingMode = true;
+            drawBtn.classList.add('active');
+        });
+
+        // Clear canvas
+        clearBtn.addEventListener('click', () => {
+            canvas.clear();
+            canvas.backgroundColor = 'white';
+            canvas.renderAll();
+        });
+
+        // Brush size control
+        brushSize.addEventListener('input', (e) => {
+            const size = parseInt(e.target.value);
+            currentBrushSize = size;
+            sizeDisplay.textContent = size;
+        });
+
+        // Prevent context menu on canvas
+        document.getElementById('canvas').addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        // Optional: Add keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Clear with 'C' key
+            if (e.key.toLowerCase() === 'c' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                canvas.clear();
+                canvas.backgroundColor = 'white';
+                canvas.renderAll();
+            }
+        });
+    </script>
+</body>
+</html>

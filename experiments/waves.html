@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Fingerprint</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            overflow: hidden;
+        }
+       
+        #cursor {
+            position: fixed;
+            top: 0;
+            right: 0;
+            margin: 0;
+            padding: 5px;
+            background: rgba(255,255,255,0.9);
+            font-family: monospace;
+            z-index: 1000;
+            font-size: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            display:none;
+        }
+       
+        #clock {
+            position: fixed;
+            top: 0;
+            left: 0;
+            margin: 0;
+            padding: 5px;
+            background: rgba(255,255,255,0.9);
+            font-family: monospace;
+            z-index: 1000;
+            display:none;
+        }
+       
+        #canvas {
+            display: block;
+        }
+       
+        #fingerprint {
+            display:none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            margin: 0;
+            padding: 5px;
+            background: rgba(255,255,255,0.9);
+            font-family: monospace;
+            z-index: 1000;
+            font-size: 10px;
+            max-height: 150px;
+            overflow-y: auto;
+            max-width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <pre id="clock"></pre>
+    <pre id="cursor"></pre>
+    <pre id="fingerprint"></pre>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+       
+        // Set canvas to half resolution for performance
+        canvas.width = window.innerWidth / 2;
+        canvas.height = window.innerHeight / 2;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+       
+        // Resize canvas when window resizes
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth / 2;
+            canvas.height = window.innerHeight / 2;
+            canvas.style.width = window.innerWidth + 'px';
+            canvas.style.height = window.innerHeight + 'px';
+        });
+       
+        let currentX = 0, currentY = 0;
+        let lastRecordedX = -1, lastRecordedY = -1;
+        let coordinateHistory = [];
+       
+        // Wave simulation variables
+        const waves = [];
+        const maxWaves = 15;
+        let time = 0; // For ambient wave animation
+       
+        // Disruption system for ambient wave interaction
+        const disruptions = [];
+        const maxDisruptions = 20;
+       
+        class Disruption {
+            constructor(x, y, strength) {
+                this.x = x;
+                this.y = y;
+                this.strength = strength;
+                this.radius = 0;
+                this.maxRadius = 100 + strength * 50;
+                this.age = 0;
+                this.maxAge = 300; // How long the disruption lasts
+            }
+           
+            update() {
+                this.age++;
+                this.radius = Math.min(this.radius + 2, this.maxRadius);
+               
+                // Fade strength over time
+                this.strength *= 0.995;
+            }
+           
+            getDisruptionAt(x, y) {
+                const distance = Math.sqrt((x - this.x) ** 2 + (y - this.y) ** 2);
+               
+                if (distance > this.radius) {
+                    return 0;
+                }
+               
+                // Smooth falloff from center
+                const falloff = 1 - (distance / this.radius);
+                const ageFalloff = Math.max(0, 1 - (this.age / this.maxAge));
+               
+                return this.strength * falloff * ageFalloff;
+            }
+           
+            isDead() {
+                return this.age > this.maxAge || this.strength < 0.01;
+            }
+        }
+       
+        // Simple Perlin noise implementation
+        class PerlinNoise {
+            constructor() {
+                this.permutation = [];
+                for (let i = 0; i < 256; i++) {
+                    this.permutation[i] = Math.floor(Math.random() * 256);
+                }
+                // Duplicate the permutation array
+                for (let i = 0; i < 256; i++) {
+                    this.permutation[256 + i] = this.permutation[i];
+                }
+            }
+           
+            fade(t) {
+                return t * t * t * (t * (t * 6 - 15) + 10);
+            }
+           
+            lerp(t, a, b) {
+                return a + t * (b - a);
+            }
+           
+            grad(hash, x, y) {
+                const h = hash & 15;
+                const u = h < 8 ? x : y;
+                const v = h < 4 ? y : h === 12 || h === 14 ? x : 0;
+                return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+            }
+           
+            noise(x, y) {
+                const X = Math.floor(x) & 255;
+                const Y = Math.floor(y) & 255;
+               
+                x -= Math.floor(x);
+                y -= Math.floor(y);
+               
+                const u = this.fade(x);
+                const v = this.fade(y);
+               
+                const A = this.permutation[X] + Y;
+                const AA = this.permutation[A];
+                const AB = this.permutation[A + 1];
+                const B = this.permutation[X + 1] + Y;
+                const BA = this.permutation[B];
+                const BB = this.permutation[B + 1];
+               
+                return this.lerp(v,
+                    this.lerp(u, this.grad(this.permutation[AA], x, y),
+                        this.grad(this.permutation[BA], x - 1, y)),
+                    this.lerp(u, this.grad(this.permutation[AB], x, y - 1),
+                        this.grad(this.permutation[BB], x - 1, y - 1))
+                );
+            }
+        }
+       
+        const perlin = new PerlinNoise();
+       
+        class Wave {
+            constructor(x, y, isSplash = false) {
+                this.x = x;
+                this.y = y;
+                this.radius = 0;
+                this.isSplash = isSplash;
+               
+                // Add wobble parameters for organic shape
+                this.wobbleFreq = 8 + Math.random() * 8; // 8-16 wobbles around circumference
+                this.wobbleAmp = (0.1 + Math.random() * 0.15) * 0.05; // Reduced to 0.5-1.25% radius variation
+                this.wobblePhase = Math.random() * Math.PI * 2; // Random starting phase
+                this.wobbleSpeed = (0.02 + Math.random() * 0.03) * 0.05; // Even slower wobble evolution
+               
+                // Add elliptical distortion for holistic unevenness
+                this.ellipseRatioX = 0.85 + Math.random() * 0.3; // 0.85-1.15 ratio in X direction
+                this.ellipseRatioY = 0.85 + Math.random() * 0.3; // 0.85-1.15 ratio in Y direction
+                this.ellipseAngle = Math.random() * Math.PI * 2; // Random orientation angle
+               
+                if (isSplash) {
+                    // Splash waves are bigger and more powerful
+                    this.maxRadius = 300 + Math.random() * 200;
+                    this.speed = 3 + Math.random() * 2;
+                    this.amplitude = 1.5 + Math.random() * 0.8;
+                    this.frequency = 0.015 + Math.random() * 0.01;
+                    this.hue = 180 + Math.random() * 40; // Blue to cyan range
+                    // Splash waves are slightly more wobbly
+                    this.wobbleAmp *= 1.5;
+                } else {
+                    // Regular cursor waves
+                    this.maxRadius = 150 + Math.random() * 100;
+                    this.speed = 2 + Math.random() * 2;
+                    this.amplitude = 0.8 + Math.random() * 0.4;
+                    this.frequency = 0.02 + Math.random() * 0.01;
+                    this.hue = 120 + Math.random() * 60; // Green to cyan
+                }
+               
+                this.age = 0;
+                this.maxAge = this.maxRadius / this.speed;
+            }
+           
+            update() {
+                this.radius += this.speed;
+                this.age++;
+               
+                // Fade amplitude over time
+                this.amplitude *= 0.995;
+            }
+           
+            getAmplitudeAt(x, y) {
+                const dx = x - this.x;
+                const dy = y - this.y;
+               
+                // Transform coordinates to elliptical space
+                // First rotate by the ellipse angle
+                const cosAngle = Math.cos(-this.ellipseAngle);
+                const sinAngle = Math.sin(-this.ellipseAngle);
+                const rotatedX = dx * cosAngle - dy * sinAngle;
+                const rotatedY = dx * sinAngle + dy * cosAngle;
+               
+                // Then apply elliptical scaling
+                const ellipticalX = rotatedX / this.ellipseRatioX;
+                const ellipticalY = rotatedY / this.ellipseRatioY;
+               
+                // Calculate distance in elliptical space
+                const ellipticalDistance = Math.sqrt(ellipticalX * ellipticalX + ellipticalY * ellipticalY);
+               
+                // Calculate angle for wobble effect (in original space)
+                const angle = Math.atan2(dy, dx);
+               
+                // Create wobble effect - radius varies around circumference
+                const wobble = Math.sin(angle * this.wobbleFreq + this.wobblePhase + this.age * this.wobbleSpeed);
+                const wobbledRadius = this.radius * (1 + wobble * this.wobbleAmp);
+               
+                // Use elliptical distance with wobbled radius for wave calculation
+                if (ellipticalDistance > wobbledRadius + 20 || ellipticalDistance < wobbledRadius - 20) {
+                    return 0;
+                }
+               
+                // Early exit for low amplitude
+                if (this.amplitude < 0.05) {
+                    return 0;
+                }
+               
+                // Wave equation with falloff using elliptical distance and wobbled radius
+                const waveValue = Math.sin((ellipticalDistance - wobbledRadius) * this.frequency) * this.amplitude;
+                const falloff = Math.exp(-this.age * 0.01);
+               
+                return waveValue * falloff;
+            }
+           
+            isDead() {
+                return this.age > this.maxAge || this.amplitude < 0.05;
+            }
+        }
+       
+        function getAmbientWaveAt(x, y, time) {
+            // Gerstner wave parameters - multiple wave trains for realistic water
+            const waves = [
+                { amplitude: 0.06, wavelength: 80, speed: 0.8, direction: [1, 0.3] },
+                { amplitude: 0.04, wavelength: 120, speed: 0.6, direction: [-0.7, 0.8] },
+                { amplitude: 0.03, wavelength: 60, speed: 1.2, direction: [0.5, -0.9] },
+                { amplitude: 0.02, wavelength: 40, speed: 1.5, direction: [-0.3, -0.6] },
+                { amplitude: 0.015, wavelength: 25, speed: 2.0, direction: [0.9, 0.2] }
+            ];
+           
+            let totalHeight = 0;
+            let totalSteepness = 0;
+           
+            for (const wave of waves) {
+                // Normalize direction vector
+                const dirLength = Math.sqrt(wave.direction[0] ** 2 + wave.direction[1] ** 2);
+                const dirX = wave.direction[0] / dirLength;
+                const dirY = wave.direction[1] / dirLength;
+               
+                // Wave number (2π / wavelength)
+                const k = (2 * Math.PI) / wave.wavelength;
+               
+                // Angular frequency (dispersion relation for deep water: ω = √(gk))
+                const g = 9.81; // gravity
+                const omega = Math.sqrt(g * k) * wave.speed;
+               
+                // Phase calculation
+                const phase = k * (dirX * x + dirY * y) - omega * time * 0.01;
+               
+                // Gerstner wave height
+                const waveHeight = wave.amplitude * Math.sin(phase);
+               
+                // Steepness factor for more realistic wave shapes
+                const steepness = 0.08; // Reduced steepness for subtlety
+                const Q = steepness / (k * wave.amplitude);
+               
+                // Add wave contribution
+                totalHeight += waveHeight;
+               
+                // Add steepness effect (makes waves more peaked, less sinusoidal)
+                const steepnessContrib = Q * wave.amplitude * Math.cos(phase);
+                totalSteepness += steepnessContrib;
+            }
+           
+            // Calculate disruption effects from cursor ripples
+            let disruptionEffect = 0;
+            for (const disruption of disruptions) {
+                const disruptionValue = disruption.getDisruptionAt(x, y);
+               
+                // Disruptions create chaotic interference with the ambient waves
+                const chaosPhase = (x + y) * 0.1 + time * 0.02;
+                const chaosWave = Math.sin(chaosPhase) * disruptionValue;
+                disruptionEffect += chaosWave;
+            }
+           
+            // Combine height, steepness, and disruption effects - much more subtle
+            const baseWave = totalHeight + totalSteepness * 0.3;
+            return (baseWave + disruptionEffect) * 0.25; // Reduced from 0.35 to 0.25
+        }
+       
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent = now.toString();
+        }
+       
+        function trackCursor(event) {
+            currentX = event.clientX;
+            currentY = event.clientY;
+        }
+       
+        function collectFingerprint() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.textBaseline = 'top';
+            ctx.font = '14px Arial';
+            ctx.fillText('Fingerprint test', 2, 2);
+            const canvasFingerprint = canvas.toDataURL();
+
+            const gl = document.createElement('canvas').getContext('webgl');
+            let webglInfo = 'not supported';
+            if (gl) {
+                webglInfo = gl.getParameter(gl.RENDERER) + ' ' + gl.getParameter(gl.VENDOR);
+            }
+
+            return [
+                screen.colorDepth,
+                screen.pixelDepth,
+            ];
+        }
+       
+        function createWave(x, y) {
+            // Convert to canvas coordinates (half resolution)
+            waves.push(new Wave(x / 2, y / 2, false));
+           
+            // Create disruption in ambient waves
+            disruptions.push(new Disruption(x / 2, y / 2, 0.3));
+           
+            // Remove old waves if we have too many
+            if (waves.length > maxWaves) {
+                waves.shift();
+            }
+           
+            // Remove old disruptions if we have too many
+            if (disruptions.length > maxDisruptions) {
+                disruptions.shift();
+            }
+        }
+       
+        function createSplash(x, y) {
+            // Create multiple concentric splash waves
+            const splashWaves = 3 + Math.floor(Math.random() * 3); // 3-5 waves
+           
+            for (let i = 0; i < splashWaves; i++) {
+                // Slight offset for each wave to create concentric effect
+                const offsetX = x + (Math.random() - 0.5) * 10;
+                const offsetY = y + (Math.random() - 0.5) * 10;
+                waves.push(new Wave(offsetX, offsetY, true));
+            }
+           
+            // Create larger disruption for splash
+            disruptions.push(new Disruption(x, y, 1.0));
+           
+            // Remove old waves if we have too many (splash waves don't count toward normal limit)
+            while (waves.length > maxWaves + 10) {
+                // Remove oldest non-splash wave first
+                for (let i = 0; i < waves.length; i++) {
+                    if (!waves[i].isSplash) {
+                        waves.splice(i, 1);
+                        break;
+                    }
+                }
+                // If no regular waves to remove, remove oldest splash
+                if (waves.length > maxWaves + 10) {
+                    waves.shift();
+                }
+            }
+           
+            // Remove old disruptions if we have too many
+            if (disruptions.length > maxDisruptions) {
+                disruptions.shift();
+            }
+        }
+       
+        function recordCoordinates() {
+            // Only record if position has changed
+            if (currentX !== lastRecordedX || currentY !== lastRecordedY) {
+                coordinateHistory.push(`${currentX}, ${currentY}`);
+                document.getElementById('cursor').textContent = coordinateHistory.join('\n');
+               
+                // Create new wave
+                createWave(currentX, currentY);
+               
+                lastRecordedX = currentX;
+                lastRecordedY = currentY;
+            }
+        }
+       
+        function animate() {
+            // Increment time for ambient wave animation
+            time += 1;
+           
+            // Clear canvas with slight trail effect
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+           
+            // Update waves
+            for (let i = waves.length - 1; i >= 0; i--) {
+                waves[i].update();
+                if (waves[i].isDead()) {
+                    waves.splice(i, 1);
+                }
+            }
+           
+            // Update disruptions
+            for (let i = disruptions.length - 1; i >= 0; i--) {
+                disruptions[i].update();
+                if (disruptions[i].isDead()) {
+                    disruptions.splice(i, 1);
+                }
+            }
+           
+            // Render wave interference
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            const data = imageData.data;
+           
+            // Sample every 6th pixel for better performance
+            for (let x = 0; x < canvas.width; x += 6) {
+                for (let y = 0; y < canvas.height; y += 6) {
+                    let totalAmplitude = 0;
+                    let avgHue = 0;
+                    let waveCount = 0;
+                   
+                    // Add ambient wave background
+                    const ambientWave = getAmbientWaveAt(x, y, time);
+                    totalAmplitude += ambientWave;
+                    avgHue += 160; // Subtle blue-green for ambient
+                    waveCount += 0.2; // Lower weight to keep background very subtle
+                   
+                    // Calculate interference from cursor/click waves
+                    for (const wave of waves) {
+                        const amplitude = wave.getAmplitudeAt(x, y);
+                        if (Math.abs(amplitude) > 0.05) {
+                            totalAmplitude += amplitude;
+                            avgHue += wave.hue;
+                            waveCount++;
+                        }
+                    }
+                   
+                    if (waveCount > 0) {
+                        avgHue /= waveCount;
+                       
+                        // Convert amplitude to color
+                        const intensity = Math.abs(totalAmplitude);
+                        const brightness = Math.min(intensity * 255, 255);
+                       
+                        // HSL to RGB conversion for the wave color
+                        const hue = avgHue / 360;
+                        const saturation = 0.8;
+                        const lightness = Math.min(intensity * 0.5, 0.8);
+                       
+                        const rgb = hslToRgb(hue, saturation, lightness);
+                       
+                        // Set pixel color in 6x6 blocks for smoothing
+                        for (let dx = 0; dx < 6; dx++) {
+                            for (let dy = 0; dy < 6; dy++) {
+                                const px = x + dx;
+                                const py = y + dy;
+                                if (px < canvas.width && py < canvas.height) {
+                                    const index = (py * canvas.width + px) * 4;
+                                    data[index] = rgb[0];     // Red
+                                    data[index + 1] = rgb[1]; // Green
+                                    data[index + 2] = rgb[2]; // Blue
+                                    data[index + 3] = brightness; // Alpha
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+           
+            ctx.putImageData(imageData, 0, 0);
+           
+            requestAnimationFrame(animate);
+        }
+       
+        function hslToRgb(h, s, l) {
+            let r, g, b;
+           
+            if (s === 0) {
+                r = g = b = l;
+            } else {
+                const hue2rgb = (p, q, t) => {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1/6) return p + (q - p) * 6 * t;
+                    if (t < 1/2) return q;
+                    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                    return p;
+                };
+               
+                const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                const p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1/3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1/3);
+            }
+           
+            return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+        }
+       
+        // Initialize
+        document.addEventListener('mousemove', trackCursor);
+        canvas.addEventListener('click', (event) => {
+            // Create splash at click position (convert to canvas coordinates)
+            createSplash(event.clientX / 2, event.clientY / 2);
+        });
+        setInterval(updateClock, 1000);
+        setInterval(recordCoordinates, 50);
+       
+        // Display fingerprint data
+        const fingerprint = collectFingerprint();
+        document.getElementById('fingerprint').textContent = fingerprint.join('\n');
+       
+        updateClock();
+        animate();
+    </script>
+</body>
+</html>

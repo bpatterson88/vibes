@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isometric Pillars</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a1a;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #ffffff;
+            font-size: 14px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+    <div id="info">
+        Isometric Pillars - 45x45 Grid<br>
+        Random Height Animation
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x2a2a2a);
+        
+        // Camera setup for isometric view
+        const aspect = window.innerWidth / window.innerHeight;
+        const frustumSize = 15;
+        const camera = new THREE.OrthographicCamera(
+            frustumSize * aspect / -2,
+            frustumSize * aspect / 2,
+            frustumSize / 2,
+            frustumSize / -2,
+            1,
+            1000
+        );
+        
+        // Position camera for isometric view
+        camera.position.set(20, 20, 20);
+        camera.lookAt(0, 0, 0);
+        
+        // Renderer setup
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.getElementById('container').appendChild(renderer.domElement);
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 2);
+        scene.add(ambientLight);
+        
+        // Main directional light from top-left
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(30, 20, 10);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
+        scene.add(directionalLight);
+        
+        // Secondary light from right side to create distinction
+        const sideLight = new THREE.DirectionalLight(0xffffff, 0.4);
+        sideLight.position.set(-10, 15, -5);
+        scene.add(sideLight);
+        
+        // Top light to brighten the top surfaces
+        const topLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        topLight.position.set(0, 30, 0);
+        scene.add(topLight);
+        
+        // Grid parameters
+        const gridSize = 45;
+        const pillarWidth = 1;
+        const pillarDepth = 1;
+        const maxHeight = 8;
+        const minHeight = 0.5;
+        
+        // Animation control
+        let animationEnabled = true;
+        
+        // Crater system
+        const craters = [];
+        
+        // Hills system (reverse craters)
+        const hills = [];
+        
+        // Mouse interaction
+        let mouse = new THREE.Vector2();
+        let raycaster = new THREE.Raycaster();
+        
+        // Perlin noise implementation
+        function noise(x, y, z) {
+            // Simple 3D noise function (simplified Perlin noise)
+            const X = Math.floor(x) & 255;
+            const Y = Math.floor(y) & 255;
+            const Z = Math.floor(z) & 255;
+            
+            x -= Math.floor(x);
+            y -= Math.floor(y);
+            z -= Math.floor(z);
+            
+            const u = fade(x);
+            const v = fade(y);
+            const w = fade(z);
+            
+            const A = p[X] + Y;
+            const AA = p[A] + Z;
+            const AB = p[A + 1] + Z;
+            const B = p[X + 1] + Y;
+            const BA = p[B] + Z;
+            const BB = p[B + 1] + Z;
+            
+            return lerp(w, lerp(v, lerp(u, grad(p[AA], x, y, z),
+                                          grad(p[BA], x - 1, y, z)),
+                                   lerp(u, grad(p[AB], x, y - 1, z),
+                                          grad(p[BB], x - 1, y - 1, z))),
+                           lerp(v, lerp(u, grad(p[AA + 1], x, y, z - 1),
+                                          grad(p[BA + 1], x - 1, y, z - 1)),
+                                   lerp(u, grad(p[AB + 1], x, y - 1, z - 1),
+                                          grad(p[BB + 1], x - 1, y - 1, z - 1))));
+        }
+        
+        function fade(t) {
+            return t * t * t * (t * (t * 6 - 15) + 10);
+        }
+        
+        function lerp(t, a, b) {
+            return a + t * (b - a);
+        }
+        
+        function grad(hash, x, y, z) {
+            const h = hash & 15;
+            const u = h < 8 ? x : y;
+            const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
+            return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        }
+        
+        // Permutation table for noise
+        const p = new Array(512);
+        const permutation = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180];
+        
+        for (let i = 0; i < 256; i++) {
+            p[256 + i] = p[i] = permutation[i];
+        }
+        
+        // Create pillars array to store individual pillar data
+        const pillars = [];
+        const pillarMeshes = [];
+        
+        // Function to get elevation color based on height
+        function getElevationColor(height) {
+            // Clamp height to valid range
+            height = Math.max(0, Math.min(height, maxHeight));
+            const normalizedHeight = Math.max(0, Math.min(1, (height - minHeight) / (maxHeight - minHeight)));
+            
+            // Elevation map colors (from low to high)
+            const colors = [
+                { r: 0, g: 0, b: 139 },     // Deep blue (water/lowest)
+                { r: 0, g: 100, b: 200 },   // Blue (shallow water)
+                { r: 0, g: 150, b: 255 },   // Light blue (coast)
+                { r: 255, g: 255, b: 0 },   // Yellow (beach/low land)
+                { r: 0, g: 255, b: 0 },     // Green (plains)
+                { r: 34, g: 139, b: 34 },   // Forest green (hills)
+                { r: 139, g: 69, b: 19 },   // Brown (mountains)
+                { r: 160, g: 82, b: 45 },   // Saddle brown (high mountains)
+                { r: 255, g: 255, b: 255 }  // White (peaks/snow)
+            ];
+            
+            // Find the two colors to interpolate between
+            const scaledHeight = normalizedHeight * (colors.length - 1);
+            const index = Math.floor(scaledHeight);
+            const fraction = scaledHeight - index;
+            
+            // Ensure indices are within bounds
+            const safeIndex1 = Math.max(0, Math.min(index, colors.length - 1));
+            const safeIndex2 = Math.max(0, Math.min(index + 1, colors.length - 1));
+            
+            const color1 = colors[safeIndex1];
+            const color2 = colors[safeIndex2];
+            
+            // Interpolate between the two colors
+            const r = Math.round(color1.r + (color2.r - color1.r) * fraction);
+            const g = Math.round(color1.g + (color2.g - color1.g) * fraction);
+            const b = Math.round(color1.b + (color2.b - color1.b) * fraction);
+            
+            return (r << 16) | (g << 8) | b;
+        }
+        
+        // Create pillars
+        for (let x = 0; x < gridSize; x++) {
+            for (let z = 0; z < gridSize; z++) {
+                // Create pillar data - start all pillars at minimal height
+                const pillarData = {
+                    targetHeight: 0.1,
+                    currentHeight: 0.1,
+                    animationSpeed: 0.02 + Math.random() * 0.03,
+                    nextChangeTime: Math.random() * 3000 + 1000, // 1-4 seconds
+                    lastChangeTime: 0
+                };
+                
+                // Create geometry and material - start with minimal visible height
+                const geometry = new THREE.BoxGeometry(pillarWidth, 0.1, pillarDepth);
+                const color = getElevationColor(0.1);
+                const material = new THREE.MeshLambertMaterial({ 
+                    color: color,
+                    transparent: true,
+                    opacity: 1
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                
+                // Position pillar (edge-to-edge, centered around origin)
+                const offsetX = (gridSize - 1) * pillarWidth / 2;
+                const offsetZ = (gridSize - 1) * pillarDepth / 2;
+                mesh.position.set(
+                    x * pillarWidth - offsetX,
+                    0.1 / 2, // Start at minimal visible height
+                    z * pillarDepth - offsetZ
+                );
+                
+                mesh.castShadow = false;
+                mesh.receiveShadow = false;
+                
+                scene.add(mesh);
+                pillars.push(pillarData);
+                pillarMeshes.push(mesh);
+            }
+        }
+        
+        // Add ground plane
+        const groundGeometry = new THREE.PlaneGeometry(gridSize * 2, gridSize * 2);
+        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -0.1;
+        ground.receiveShadow = true;
+        scene.add(ground);
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const currentTime = Date.now();
+            
+            // Update each pillar only if animation is enabled
+            if (animationEnabled) {
+                const time = currentTime * 0.001; // Convert to seconds
+                
+                pillars.forEach((pillar, index) => {
+                    const mesh = pillarMeshes[index];
+                    
+                    // Calculate grid position
+                    const x = index % gridSize;
+                    const z = Math.floor(index / gridSize);
+                    
+                    // Use Perlin noise for smooth, organic height variation
+                    const noiseScale = 0.1; // Controls the "zoom" of the noise
+                    const timeScale = 0.2; // Controls animation speed (slower)
+                    const noiseValue = noise(x * noiseScale, z * noiseScale, time * timeScale);
+                    
+                    // Map noise value (-1 to 1) to height range
+                    const normalizedNoise = (noiseValue + 1) / 2; // Convert to 0-1 range
+                    let baseHeight = minHeight + normalizedNoise * (maxHeight - minHeight);
+                    
+                    // Apply crater effects (lower terrain)
+                    let craterEffect = 0;
+                    craters.forEach(crater => {
+                        const distance = Math.sqrt((x - crater.centerX) ** 2 + (z - crater.centerZ) ** 2);
+                        
+                        if (distance <= crater.radius) {
+                            // Calculate crater depth based on distance from center
+                            const normalizedDistance = distance / crater.radius;
+                            const craterDepth = (1 - normalizedDistance) * crater.depth;
+                            
+                            // Calculate erosion factor (craters fade over time)
+                            const erosionFactor = Math.max(0, 1 - (crater.age / crater.maxAge));
+                            
+                            craterEffect = Math.max(craterEffect, craterDepth * erosionFactor);
+                        }
+                    });
+                    
+                    // Apply hill effects (raise terrain)
+                    let hillEffect = 0;
+                    hills.forEach(hill => {
+                        const distance = Math.sqrt((x - hill.centerX) ** 2 + (z - hill.centerZ) ** 2);
+                        
+                        if (distance <= hill.radius) {
+                            // Calculate hill height based on distance from center
+                            const normalizedDistance = distance / hill.radius;
+                            const hillHeight = (1 - normalizedDistance) * hill.height;
+                            
+                            // Calculate erosion factor (hills fade over time)
+                            const erosionFactor = Math.max(0, 1 - (hill.age / hill.maxAge));
+                            
+                            hillEffect = Math.max(hillEffect, hillHeight * erosionFactor);
+                        }
+                    });
+                    
+                    // Apply both crater and hill effects to height
+                    pillar.targetHeight = Math.max(0.1, baseHeight - craterEffect * (maxHeight - minHeight) + hillEffect * (maxHeight - minHeight));
+                    
+                    // Smoothly animate towards target height
+                    const heightDiff = pillar.targetHeight - pillar.currentHeight;
+                    if (Math.abs(heightDiff) > 0.01) {
+                        pillar.currentHeight += heightDiff * 0.02; // Slower smooth interpolation
+                        
+                        // Update mesh geometry, position, and color
+                        mesh.geometry.dispose();
+                        mesh.geometry = new THREE.BoxGeometry(pillarWidth, pillar.currentHeight, pillarDepth);
+                        mesh.position.y = pillar.currentHeight / 2;
+                        
+                        // Update color based on new height
+                        const newColor = getElevationColor(pillar.currentHeight);
+                        mesh.material.color.setHex(newColor);
+                    }
+                });
+                
+                // Update craters (age them and remove expired ones)
+                for (let i = craters.length - 1; i >= 0; i--) {
+                    craters[i].age += 16; // Approximate 60fps
+                    if (craters[i].age >= craters[i].maxAge) {
+                        craters.splice(i, 1);
+                    }
+                }
+                
+                // Update hills (age them and remove expired ones)
+                for (let i = hills.length - 1; i >= 0; i--) {
+                    hills[i].age += 16; // Approximate 60fps
+                    if (hills[i].age >= hills[i].maxAge) {
+                        hills.splice(i, 1);
+                    }
+                }
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            camera.left = frustumSize * aspect / -2;
+            camera.right = frustumSize * aspect / 2;
+            camera.top = frustumSize / 2;
+            camera.bottom = frustumSize / -2;
+            camera.updateProjectionMatrix();
+            
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        window.addEventListener('resize', onWindowResize);
+        
+        // Mouse controls
+        function onMouseClick(event) {
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            // Update the picking ray with the camera and mouse position
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Calculate objects intersecting the picking ray
+            const intersects = raycaster.intersectObjects(pillarMeshes);
+            
+            if (intersects.length > 0) {
+                const intersectedMesh = intersects[0].object;
+                const intersectedIndex = pillarMeshes.indexOf(intersectedMesh);
+                
+                // Calculate grid position
+                const gridX = intersectedIndex % gridSize;
+                const gridZ = Math.floor(intersectedIndex / gridSize);
+                
+                // Check if Cmd key (metaKey) is pressed
+                if (event.metaKey) {
+                    // Create a new hill (reverse crater)
+                    const hill = {
+                        centerX: gridX,
+                        centerZ: gridZ,
+                        radius: 5 + Math.random() * 3, // Random radius between 5-8
+                        height: 0.8 + Math.random() * 0.4, // Random height multiplier
+                        age: 0,
+                        maxAge: 10000 + Math.random() * 5000 // 10-15 seconds to erode
+                    };
+                    
+                    hills.push(hill);
+                } else {
+                    // Create a new crater
+                    const crater = {
+                        centerX: gridX,
+                        centerZ: gridZ,
+                        radius: 5 + Math.random() * 3, // Random radius between 5-8
+                        depth: 0.8 + Math.random() * 0.4, // Random depth multiplier
+                        age: 0,
+                        maxAge: 10000 + Math.random() * 5000 // 10-15 seconds to erode
+                    };
+                    
+                    craters.push(crater);
+                }
+            }
+        }
+        
+        window.addEventListener('click', onMouseClick);
+        
+        // Keyboard controls
+        function onKeyDown(event) {
+            if (event.key === '0') {
+                // Stop animation and set all pillars to height 0.1
+                animationEnabled = false;
+                
+                pillars.forEach((pillar, index) => {
+                    const mesh = pillarMeshes[index];
+                    
+                    // Set pillar data
+                    pillar.currentHeight = 0.1;
+                    pillar.targetHeight = 0.1;
+                    
+                    // Update mesh geometry and position
+                    mesh.geometry.dispose();
+                    mesh.geometry = new THREE.BoxGeometry(pillarWidth, 0.1, pillarDepth);
+                    mesh.position.y = 0.1 / 2;
+                });
+            }
+        }
+        
+        window.addEventListener('keydown', onKeyDown);
+        
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>

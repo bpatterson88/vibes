@@ -1,0 +1,210 @@
+/* Base Styles */
+body {
+    margin: 0;
+    padding: 0;
+    background: #1a1a1a;
+    font-family: Arial, sans-serif;
+    font-size: 14px;
+    height: 100vh;
+}
+
+/* Container Base Styles */
+.window-container {
+    position: absolute;
+    cursor: move;
+    background: #333;
+}
+
+#draggable-container {
+    top: 30px;
+    left: 30px;
+}
+
+#projects-container {
+    top: 180px;
+    left: 30px;
+}
+
+#tools-container {
+    top: 30px;
+    left: 200px;
+}
+
+/* Link Styles - Apply to all container links */
+.window-container a {
+    display: flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+    height: 30px;
+    padding: 0 10px;
+}
+
+.window-container a:hover {
+    text-decoration: none;
+    background: #444;
+}
+
+.window-container a.disabled {
+    color: #666;
+    cursor: not-allowed;
+}
+
+.window-container a.disabled:hover {
+    background: #333;
+}
+
+/* Window Header */
+.window-header {
+    display: flex;
+    align-items: center;
+    color: white;
+    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    height: 30px;
+    padding: 0 10px;
+    background-color: #444;
+}
+
+/* Title Bar */
+.title-bar {
+    width: 100%;
+    height: 30px;
+    background: #444;
+    cursor: move;
+    display: flex;
+    align-items: center;
+    padding: 0 5px 0 10px;
+    box-sizing: border-box;
+}
+
+.title-bar span {
+    color: white;
+    font-size: 14px;
+    flex: 1;
+}
+
+.title-bar button {
+    background: #666;
+    color: white;
+    border: none;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.title-bar button:hover {
+    background-color: red;
+}
+
+.title-bar button + button {
+    margin-left: 1px;
+}
+
+/* Iframe Container */
+.iframe-container {
+    position: absolute;
+    background: #333;
+}
+
+.iframe-container iframe {
+    width: 100%;
+    height: calc(100% - 30px);
+    border: none;
+}
+
+/* Iframe Overlay */
+.iframe-overlay {
+    position: absolute;
+    top: 30px;
+    left: 0;
+    width: 100%;
+    height: calc(100% - 30px);
+    background: transparent;
+    z-index: 2;
+    cursor: pointer;
+}
+
+/* Resize Handle Base */
+.resize-handle {
+    position: absolute;
+    background: transparent;
+}
+
+/* Edge Resize Handles */
+.resize-n {
+    top: 0;
+    left: 10px;
+    right: 10px;
+    height: 10px;
+    cursor: n-resize;
+}
+
+.resize-s {
+    bottom: 0;
+    left: 10px;
+    right: 10px;
+    height: 10px;
+    cursor: s-resize;
+}
+
+.resize-e {
+    top: 10px;
+    right: 0;
+    width: 10px;
+    bottom: 10px;
+    cursor: e-resize;
+}
+
+.resize-w {
+    top: 10px;
+    left: 0;
+    width: 10px;
+    bottom: 10px;
+    cursor: w-resize;
+}
+
+/* Corner Resize Handles */
+.resize-ne,
+.resize-nw,
+.resize-se,
+.resize-sw {
+    width: 10px;
+    height: 10px;
+}
+
+.resize-ne {
+    top: 0;
+    right: 0;
+    cursor: ne-resize;
+}
+
+.resize-nw {
+    top: 0;
+    left: 0;
+    cursor: nw-resize;
+}
+
+.resize-se {
+    bottom: 0;
+    right: 0;
+    cursor: se-resize;
+}
+
+.resize-sw {
+    bottom: 0;
+    left: 0;
+    cursor: sw-resize;
+}
+
+/* Utility Classes */
+.no-select {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.no-pointer-events {
+    pointer-events: none;
+}

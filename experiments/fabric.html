@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fabric Simulation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #1a1a1a;
+            font-family: Arial, sans-serif;
+        }
+       
+        #container {
+            width: 100vw;
+            height: 100vh;
+        }
+       
+        #helpModal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+       
+        #helpContent {
+            background: #2a2a2a;
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: white;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+       
+        #helpContent h2 {
+            margin-top: 0;
+            color: #4CAF50;
+            text-align: center;
+            font-size: 24px;
+        }
+       
+        .help-section {
+            margin-bottom: 25px;
+        }
+       
+        .help-section h3 {
+            color: #81C784;
+            margin-bottom: 10px;
+            font-size: 18px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+       
+        .help-item {
+            display: flex;
+            margin-bottom: 8px;
+            align-items: center;
+        }
+       
+        .help-key {
+            background: #444;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: bold;
+            min-width: 60px;
+            text-align: center;
+            margin-right: 15px;
+            font-size: 12px;
+        }
+       
+        .help-desc {
+            flex: 1;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+       
+        .color-gradient {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+        }
+       
+        .color-box {
+            width: 20px;
+            height: 20px;
+            margin-right: 5px;
+            border-radius: 3px;
+        }
+       
+        .release-note {
+            text-align: center;
+            margin-top: 20px;
+            color: #999;
+            font-style: italic;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container"></div>
+   
+    <div id="helpModal">
+        <div id="helpContent">
+            <h2>🎨 Fabric Simulation Controls</h2>
+           
+            <div class="help-section">
+                <h3>Visual Controls</h3>
+                <div class="help-item">
+                    <span class="help-key">1</span>
+                    <span class="help-desc">Toggle spring lines on/off</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">2</span>
+                    <span class="help-desc">Toggle cell fill on/off</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">3</span>
+                    <span class="help-desc">Toggle depth coloring on/off</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">G</span>
+                    <span class="help-desc">Next color gradient (Rainbow → Ocean → Fire → Forest → Sunset → Mono)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">F</span>
+                    <span class="help-desc">Previous color gradient</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">+ =</span>
+                    <span class="help-desc">Increase dot size (1-10px)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">-</span>
+                    <span class="help-desc">Decrease dot size</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">[</span>
+                    <span class="help-desc">Decrease line thickness (0.5-5px)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">]</span>
+                    <span class="help-desc">Increase line thickness</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">,</span>
+                    <span class="help-desc">Decrease fill opacity (more transparent)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">.</span>
+                    <span class="help-desc">Increase fill opacity (more solid)</span>
+                </div>
+            </div>
+           
+            <div class="help-section">
+                <h3>Selection & Physics</h3>
+                <div class="help-item">
+                    <span class="help-key">Q</span>
+                    <span class="help-desc">Decrease selection radius (minimum 10px)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">W</span>
+                    <span class="help-desc">Increase selection radius (maximum 100px)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">R</span>
+                    <span class="help-desc">Decrease depth sensitivity (colors change faster)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">T</span>
+                    <span class="help-desc">Increase depth sensitivity (colors change slower)</span>
+                </div>
+            </div>
+           
+            <div class="help-section">
+                <h3>Special Functions</h3>
+                <div class="help-item">
+                    <span class="help-key">I</span>
+                    <span class="help-desc">Iron: Reset entire fabric to original flat state</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">ESC</span>
+                    <span class="help-desc">Emergency release: Clear all selections and modes</span>
+                </div>
+            </div>
+           
+            <div class="help-section">
+                <h3>Image Processing</h3>
+                <div class="help-item">
+                    <span class="help-key">Drag</span>
+                    <span class="help-desc">Drag and drop image files to create fabric impression</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">Z</span>
+                    <span class="help-desc">Decrease image depth (shallower impression)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">X</span>
+                    <span class="help-desc">Increase image depth (deeper impression)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">C</span>
+                    <span class="help-desc">Clear image impression (flatten fabric)</span>
+                </div>
+            </div>
+           
+            <div class="help-section">
+                <h3>Mouse Interactions</h3>
+                <div class="help-item">
+                    <span class="help-key">Click</span>
+                    <span class="help-desc">Select and drag particles</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">⌘ Click</span>
+                    <span class="help-desc">Iron mode: Flatten particles to original positions</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">⇧ Click</span>
+                    <span class="help-desc">Sticky selection: Add particles to persistent selection</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key">Ctrl Hold</span>
+                    <span class="help-desc">Repel mode: Push particles away from cursor</span>
+                </div>
+            </div>
+           
+            <div class="help-section">
+                <h3>Color Gradient (Displacement)</h3>
+                <div class="color-gradient">
+                    <div class="color-box" style="background: #0000FF;"></div>
+                    <div class="color-box" style="background: #00FFFF;"></div>
+                    <div class="color-box" style="background: #00FF00;"></div>
+                    <div class="color-box" style="background: #FFFF00;"></div>
+                    <div class="color-box" style="background: #FF8000;"></div>
+                    <div class="color-box" style="background: #FF0000;"></div>
+                    <span style="margin-left: 10px; font-size: 12px;">Blue → Cyan → Green → Yellow → Orange → Red (cycles smoothly)</span>
+                </div>
+                <div class="help-item">
+                    <span class="help-key" style="background: #0000FF;">Blue</span>
+                    <span class="help-desc">Pinned particles & original positions</span>
+                </div>
+            </div>
+           
+            <div class="release-note">
+                Release any key to close this help
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="fabric.js"></script>
+</body>
+</html>
