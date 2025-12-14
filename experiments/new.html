@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Example - Canvas, Context, and Shaders</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background: #000;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            cursor: default;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glCanvas"></canvas>
+
+    <script>
+        // ============================================
+        // 2. SHADER SOURCE CODE (GLSL)
+        // ============================================
+        
+        // VERTEX SHADER - Runs once per vertex
+        // Transforms 3D vertex positions with perspective projection
+        const vertexShaderSource = `
+            attribute vec3 aPosition;  // Input: vertex position (x, y, z)
+            attribute vec4 aColor;     // Input: vertex color (r, g, b, a)
+            
+            varying vec4 vColor;       // Output: pass color to fragment shader
+            varying float vDepth;      // Output: depth for color fading
+            
+            uniform float uRotationX;  // Rotation around X axis
+            uniform float uRotationY;  // Rotation around Y axis
+            uniform mat4 uProjection;  // Perspective projection matrix
+            
+            void main() {
+                // Apply rotation around Y axis (horizontal spin)
+                float cosY = cos(uRotationY);
+                float sinY = sin(uRotationY);
+                mat3 rotationY = mat3(
+                    cosY, 0.0, sinY,
+                    0.0, 1.0, 0.0,
+                    -sinY, 0.0, cosY
+                );
+                
+                // Apply rotation around X axis (vertical tilt)
+                float cosX = cos(uRotationX);
+                float sinX = sin(uRotationX);
+                mat3 rotationX = mat3(
+                    1.0, 0.0, 0.0,
+                    0.0, cosX, -sinX,
+                    0.0, sinX, cosX
+                );
+                
+                // Combine rotations and apply to position
+                vec3 rotated = rotationX * rotationY * aPosition;
+                
+                // Apply perspective projection
+                gl_Position = uProjection * vec4(rotated, 1.0);
+                
+                // Set point size based on depth (closer = bigger)
+                gl_PointSize = 3.0 + (2.0 / (gl_Position.z + 2.0));
+                
+                // Pass color and depth to fragment shader
+                vColor = aColor;
+                vDepth = rotated.z;
+            }
+        `;
+        
+        // FRAGMENT SHADER - Runs once per pixel
+        // Determines the final color of each pixel with depth-based fading
+        const fragmentShaderSource = `
+            precision mediump float;
+            
+            varying vec4 vColor;   // Input: color from vertex shader (rgba)
+            varying float vDepth;  // Input: depth from vertex shader
+            
+            void main() {
+                // For points: make them circular and apply depth fading
+                // gl_PointCoord is (0,0) to (1,1) for points, but undefined for triangles
+                vec2 pointCoord = gl_PointCoord;
+                if (pointCoord.x > 0.0 && pointCoord.y > 0.0) {
+                    // Likely rendering points
+                    vec2 coord = pointCoord - vec2(0.5);
+                    if (length(coord) > 0.5) {
+                        discard;  // Make points circular
+                    }
+                    // Apply depth-based alpha fading
+                    float depthAlpha = 1.0 - smoothstep(0.0, 3.0, abs(vDepth));
+                    gl_FragColor = vec4(vColor.rgb, vColor.a * depthAlpha);
+                } else {
+                    // Rendering triangles - use vertex color directly
+                    gl_FragColor = vColor;
+                }
+            }
+        `;
+        
+        // ============================================
+        // 3. GET CANVAS AND WEBGL CONTEXT
+        // ============================================
+        
+        const canvas = document.getElementById('glCanvas');
+        
+        // Set initial canvas size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        
+        if (!gl) {
+            alert('WebGL not supported in your browser!');
+            throw new Error('WebGL not available');
+        }
+        
+        console.log('✓ WebGL context created successfully');
+        
+        // ============================================
+        // 4. COMPILE SHADERS
+        // ============================================
+        
+        function compileShader(gl, source, type) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            // Check for compilation errors
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('Shader compilation error:', gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            
+            return shader;
+        }
+        
+        const vertexShader = compileShader(gl, vertexShaderSource, gl.VERTEX_SHADER);
+        const fragmentShader = compileShader(gl, fragmentShaderSource, gl.FRAGMENT_SHADER);
+        
+        console.log('✓ Shaders compiled successfully');
+        
+        // ============================================
+        // 5. CREATE AND LINK SHADER PROGRAM
+        // ============================================
+        
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('Program linking error:', gl.getProgramInfoLog(program));
+            throw new Error('Failed to link program');
+        }
+        
+        gl.useProgram(program);
+        console.log('✓ Shader program linked and activated');
+        
+        // ============================================
+        // 6. SET UP VERTEX DATA - 3D POINT FIELD
+        // ============================================
+        
+        // Create randomly scattered points
+        const pointCount = 3000;  // Number of points
+        const spreadRadius = 3.0;  // How far points can be from center
+        const trailLength = 15;  // Number of historical positions to keep (half as long)
+        
+        // Store original positions and colors
+        const points = [];
+        
+        // Array to store shooting stars
+        const shootingStars = [];
+        
+        for (let i = 0; i < pointCount; i++) {
+            // Random position within a sphere (using spherical coordinates for even distribution)
+            const theta = Math.random() * Math.PI * 2;  // Azimuthal angle
+            const phi = Math.acos(2 * Math.random() - 1);  // Polar angle
+            const radius = Math.cbrt(Math.random()) * spreadRadius;  // Cube root for even volume distribution
+            
+            const px = radius * Math.sin(phi) * Math.cos(theta);
+            const py = radius * Math.sin(phi) * Math.sin(theta);
+            const pz = radius * Math.cos(phi);
+            
+            // Random vibrant colors
+            const r = Math.random() * 0.5 + 0.5;  // 0.5 to 1.0 for brighter colors
+            const g = Math.random() * 0.5 + 0.5;
+            const b = Math.random() * 0.5 + 0.5;
+            
+            points.push({
+                original: [px, py, pz],
+                color: [r, g, b],
+                history: [],  // Will store [x, y, z] for each frame
+                twinkleOffset: Math.random() * 100,  // Random offset for twinkle timing
+                twinkleSpeed: 0.5 + Math.random() * 1.5  // Random speed multiplier
+            });
+        }
+        
+        // Create dynamic buffer for current points
+        const pointBuffer = gl.createBuffer();
+        
+        // Create dynamic buffer for trail lines
+        const trailBuffer = gl.createBuffer();
+        
+        console.log(`✓ Created ${pointCount} points with trail support`);
+        
+        // ============================================
+        // 6.5. CREATE ICOSPHERE FOR DIRECTION INDICATOR
+        // ============================================
+        
+        function createIcosphere(subdivisions = 2) {
+            // Base icosahedron vertices (12 vertices on unit sphere)
+            const t = (1.0 + Math.sqrt(5.0)) / 2.0;
+            const vertices = [
+                [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
+                [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+                [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
+            ].map(v => {
+                const len = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                return [v[0] / len, v[1] / len, v[2] / len];
+            });
+            
+            // Base icosahedron faces (20 triangular faces)
+            let faces = [
+                [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+                [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+                [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+                [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+            ];
+            
+            // Subdivide faces
+            for (let i = 0; i < subdivisions; i++) {
+                const newFaces = [];
+                const midpointCache = {};
+                
+                const getMidpoint = (i1, i2) => {
+                    const key = i1 < i2 ? `${i1},${i2}` : `${i2},${i1}`;
+                    if (midpointCache[key] !== undefined) {
+                        return midpointCache[key];
+                    }
+                    
+                    const v1 = vertices[i1];
+                    const v2 = vertices[i2];
+                    const mid = [
+                        (v1[0] + v2[0]) / 2,
+                        (v1[1] + v2[1]) / 2,
+                        (v1[2] + v2[2]) / 2
+                    ];
+                    
+                    // Normalize to sphere
+                    const len = Math.sqrt(mid[0] * mid[0] + mid[1] * mid[1] + mid[2] * mid[2]);
+                    const normalized = [mid[0] / len, mid[1] / len, mid[2] / len];
+                    
+                    const index = vertices.length;
+                    vertices.push(normalized);
+                    midpointCache[key] = index;
+                    return index;
+                };
+                
+                faces.forEach(face => {
+                    const [v0, v1, v2] = face;
+                    const m0 = getMidpoint(v0, v1);
+                    const m1 = getMidpoint(v1, v2);
+                    const m2 = getMidpoint(v2, v0);
+                    
+                    newFaces.push([v0, m0, m2]);
+                    newFaces.push([v1, m1, m0]);
+                    newFaces.push([v2, m2, m1]);
+                    newFaces.push([m0, m1, m2]);
+                });
+                
+                faces = newFaces;
+            }
+            
+            // Calculate face normals (center of each triangle)
+            const faceNormals = faces.map(face => {
+                const v0 = vertices[face[0]];
+                const v1 = vertices[face[1]];
+                const v2 = vertices[face[2]];
+                
+                // Face center
+                const center = [
+                    (v0[0] + v1[0] + v2[0]) / 3,
+                    (v0[1] + v1[1] + v2[1]) / 3,
+                    (v0[2] + v1[2] + v2[2]) / 3
+                ];
+                
+                // Normalize (should already be ~1 on sphere)
+                const len = Math.sqrt(center[0] * center[0] + center[1] * center[1] + center[2] * center[2]);
+                return [center[0] / len, center[1] / len, center[2] / len];
+            });
+            
+            return { vertices, faces, faceNormals };
+        }
+        
+        // Generate icosphere with 2 subdivisions (~80 faces)
+        const icosphere = createIcosphere(2);
+        console.log(`✓ Created icosphere: ${icosphere.vertices.length} vertices, ${icosphere.faces.length} faces`);
+        
+        // Create sphere vertex buffer (will be updated per-frame with colors)
+        const sphereBuffer = gl.createBuffer();
+        
+        // Create sphere index buffer (static)
+        const sphereIndexBuffer = gl.createBuffer();
+        const sphereIndices = new Uint16Array(icosphere.faces.flat());
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphereIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, sphereIndices, gl.STATIC_DRAW);
+        
+        console.log('✓ Sphere buffers created');
+        
+        // ============================================
+        // 7. CONFIGURE VERTEX ATTRIBUTES
+        // ============================================
+        
+        // Get attribute locations
+        const aPosition = gl.getAttribLocation(program, 'aPosition');
+        const aColor = gl.getAttribLocation(program, 'aColor');
+        
+        // Define how to read position data (3 floats for x, y, z)
+        gl.vertexAttribPointer(
+            aPosition,           // attribute location
+            3,                   // number of components (x, y, z)
+            gl.FLOAT,           // data type
+            false,              // normalize?
+            6 * Float32Array.BYTES_PER_ELEMENT,  // stride (6 floats per vertex)
+            0                   // offset (start at beginning)
+        );
+        gl.enableVertexAttribArray(aPosition);
+        
+        // Define how to read color data (3 floats, starting after position)
+        gl.vertexAttribPointer(
+            aColor,             // attribute location
+            3,                  // number of components (r, g, b)
+            gl.FLOAT,          // data type
+            false,             // normalize?
+            6 * Float32Array.BYTES_PER_ELEMENT,  // stride (6 floats per vertex)
+            3 * Float32Array.BYTES_PER_ELEMENT   // offset (skip 3 floats for position)
+        );
+        gl.enableVertexAttribArray(aColor);
+        
+        // Get uniform locations
+        const uRotationX = gl.getUniformLocation(program, 'uRotationX');
+        const uRotationY = gl.getUniformLocation(program, 'uRotationY');
+        const uProjection = gl.getUniformLocation(program, 'uProjection');
+        
+        console.log('✓ Vertex attributes configured');
+        
+        // ============================================
+        // 8. RENDERING SETUP
+        // ============================================
+        
+        // Set clear color (background)
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        
+        // Enable blending for transparency (depth fading)
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        
+        // Create perspective projection matrix
+        function createPerspectiveMatrix(fov, aspect, near, far) {
+            const f = 1.0 / Math.tan(fov / 2);
+            return new Float32Array([
+                f / aspect, 0, 0, 0,
+                0, f, 0, 0,
+                0, 0, (far + near) / (near - far), -1,
+                0, 0, (2 * far * near) / (near - far), 0
+            ]);
+        }
+        
+        // Set up projection matrix
+        const fov = Math.PI / 4;  // 45 degrees
+        const aspect = canvas.width / canvas.height;
+        const near = 0.1;
+        const far = 100.0;
+        const projectionMatrix = createPerspectiveMatrix(fov, aspect, near, far);
+        
+        // Upload projection matrix to shader (only once as it doesn't change)
+        gl.uniformMatrix4fv(uProjection, false, projectionMatrix);
+        
+        console.log('✓ Rendering setup complete');
+        
+        // ============================================
+        // 9. POINTER LOCK INTERACTION (UNLIMITED ROTATION)
+        // ============================================
+        
+        let rotationY = 0;
+        let rotationX = 0.3;
+        let targetRotationY = 0;
+        let targetRotationX = 0.3;
+        
+        // Sensitivity for rotation (adjust these values to change rotation speed)
+        const sensitivityX = 0.003;  // Horizontal rotation sensitivity
+        const sensitivityY = 0.003;  // Vertical rotation sensitivity
+        
+        // Request pointer lock on canvas click
+        canvas.addEventListener('click', () => {
+            canvas.requestPointerLock();
+        });
+        
+        // Handle pointer lock changes
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === canvas) {
+                console.log('✓ Pointer locked - unlimited rotation enabled');
+            } else {
+                console.log('✓ Pointer unlocked');
+            }
+        });
+        
+        // Handle pointer lock errors
+        document.addEventListener('pointerlockerror', () => {
+            console.error('✗ Pointer lock error');
+        });
+        
+        // Mouse movement with pointer lock - uses movementX/Y for unlimited rotation
+        document.addEventListener('mousemove', (e) => {
+            // Only process movement when pointer is locked
+            if (document.pointerLockElement === canvas) {
+                // Use movementX/Y which works even at viewport edges
+                const deltaX = e.movementX;
+                const deltaY = e.movementY;
+                
+                // Update target rotations based on mouse movement
+                targetRotationY += deltaX * sensitivityX;
+                targetRotationX += deltaY * sensitivityY;
+                
+                // No clamping - allow full 360° rotation on all axes!
+            }
+        });
+        
+        console.log('✓ Pointer lock controls enabled (click to activate, ESC to release)');
+        
+        // ============================================
+        // 10. ANIMATION LOOP WITH POSITION HISTORY TRAILS
+        // ============================================
+        
+        // Smooth noise function for organic twinkling
+        function smoothNoise(x) {
+            // Multi-octave noise for natural variation
+            const noise1 = Math.sin(x * 1.0) * 0.5;
+            const noise2 = Math.sin(x * 2.3 + 1.5) * 0.3;
+            const noise3 = Math.sin(x * 4.7 + 3.7) * 0.2;
+            return (noise1 + noise2 + noise3) * 0.5 + 0.5; // Normalize to 0-1
+        }
+        
+        let time = 0;
+        let lastShootingStarTime = 0;
+        
+        // Function to spawn a shooting star
+        function spawnShootingStar() {
+            // Random starting position on the outer sphere
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const radius = spreadRadius * 1.2;  // Start slightly outside the sphere
+            
+            const startX = radius * Math.sin(phi) * Math.cos(theta);
+            const startY = radius * Math.sin(phi) * Math.sin(theta);
+            const startZ = radius * Math.cos(phi);
+            
+            // Random velocity direction (generally inward with some variation)
+            const velocityMag = 0.08 + Math.random() * 0.04;  // Speed: 0.08-0.12 units per frame
+            const targetTheta = theta + (Math.random() - 0.5) * Math.PI * 0.5;
+            const targetPhi = phi + (Math.random() - 0.5) * Math.PI * 0.5;
+            
+            const velocityX = -Math.sin(targetPhi) * Math.cos(targetTheta) * velocityMag;
+            const velocityY = -Math.sin(targetPhi) * Math.sin(targetTheta) * velocityMag;
+            const velocityZ = -Math.cos(targetPhi) * velocityMag;
+            
+            // Bright white/yellow color for shooting star
+            const colorVariation = Math.random() * 0.2;
+            const shootingStar = {
+                position: [startX, startY, startZ],
+                velocity: [velocityX, velocityY, velocityZ],
+                color: [1.0, 1.0 - colorVariation, 0.9 - colorVariation],  // White to yellow-white
+                lifetime: 0,
+                maxLifetime: 60 + Math.random() * 30,  // 60-90 frames (~2-3 seconds)
+                history: [],
+                trailLength: 40  // Longer trail for shooting stars
+            };
+            
+            shootingStars.push(shootingStar);
+            console.log('✨ Shooting star spawned!');
+        }
+        
+        // Helper function to rotate a 3D point
+        function rotatePoint(point, rotX, rotY) {
+            const [x, y, z] = point;
+            
+            // Rotate around Y axis
+            const cosY = Math.cos(rotY);
+            const sinY = Math.sin(rotY);
+            const x1 = x * cosY + z * sinY;
+            const z1 = -x * sinY + z * cosY;
+            
+            // Rotate around X axis
+            const cosX = Math.cos(rotX);
+            const sinX = Math.sin(rotX);
+            const y1 = y * cosX - z1 * sinX;
+            const z2 = y * sinX + z1 * cosX;
+            
+            return [x1, y1, z2];
+        }
+        
+        // Helper function to apply automatic slow rotation to stars
+        function applyAutoRotation(point, time) {
+            const [x, y, z] = point;
+            
+            // Very slow rotation speeds (one full rotation takes ~150 seconds)
+            const rotSpeed = 0.01;
+            const rotY = time * rotSpeed;
+            const rotX = time * rotSpeed * 0.7;  // Slightly different speeds for more organic movement
+            
+            // Rotate around Y axis
+            const cosY = Math.cos(rotY);
+            const sinY = Math.sin(rotY);
+            const x1 = x * cosY + z * sinY;
+            const z1 = -x * sinY + z * cosY;
+            
+            // Rotate around X axis
+            const cosX = Math.cos(rotX);
+            const sinX = Math.sin(rotX);
+            const y1 = y * cosX - z1 * sinX;
+            const z2 = y * sinX + z1 * cosX;
+            
+            return [x1, y1, z2];
+        }
+        
+        function render() {
+            // Smoothly interpolate to target rotation (for smooth dragging)
+            rotationY += (targetRotationY - rotationY) * 0.1;
+            rotationX += (targetRotationX - rotationX) * 0.1;
+            
+            // Increment time for twinkle animation
+            time += 0.03;
+            
+            // Spawn shooting stars randomly every 8-12 seconds
+            const timeSinceLastStar = time - lastShootingStarTime;
+            const nextStarDelay = 8 + Math.random() * 4;  // 8-12 seconds (in time units)
+            if (timeSinceLastStar > nextStarDelay) {
+                spawnShootingStar();
+                lastShootingStarTime = time;
+            }
+            
+            // Update shooting stars
+            shootingStars.forEach(star => {
+                // Update position
+                star.position[0] += star.velocity[0];
+                star.position[1] += star.velocity[1];
+                star.position[2] += star.velocity[2];
+                
+                // Apply camera rotation to position for rendering
+                const rotated = rotatePoint(star.position, rotationX, rotationY);
+                
+                // Add to history
+                star.history.push(rotated);
+                if (star.history.length > star.trailLength) {
+                    star.history.shift();
+                }
+                
+                star.lifetime++;
+            });
+            
+            // Remove expired shooting stars
+            for (let i = shootingStars.length - 1; i >= 0; i--) {
+                if (shootingStars[i].lifetime > shootingStars[i].maxLifetime) {
+                    shootingStars.splice(i, 1);
+                }
+            }
+            
+            // Calculate background color based on viewing direction
+            // Normalize rotation to 0-2π range
+            let normalizedRotation = ((rotationY % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2);
+            
+            // Map rotation to cardinal directions with smooth color transitions
+            // North (0°): Deep blue
+            // East (90°): Warm yellow/gold (sunrise)
+            // South (180°): Deep red/purple
+            // West (270°): Orange (sunset)
+            
+            let r, g, b;
+            
+            if (normalizedRotation < Math.PI / 2) {
+                // North to East (0° to 90°)
+                const t = normalizedRotation / (Math.PI / 2);
+                r = 0.02 + t * 0.08;  // 0.02 -> 0.10
+                g = 0.02 + t * 0.06;  // 0.02 -> 0.08
+                b = 0.08 - t * 0.04;  // 0.08 -> 0.04
+            } else if (normalizedRotation < Math.PI) {
+                // East to South (90° to 180°)
+                const t = (normalizedRotation - Math.PI / 2) / (Math.PI / 2);
+                r = 0.10 - t * 0.02;  // 0.10 -> 0.08
+                g = 0.08 - t * 0.06;  // 0.08 -> 0.02
+                b = 0.04 + t * 0.02;  // 0.04 -> 0.06
+            } else if (normalizedRotation < Math.PI * 1.5) {
+                // South to West (180° to 270°)
+                const t = (normalizedRotation - Math.PI) / (Math.PI / 2);
+                r = 0.08 + t * 0.02;  // 0.08 -> 0.10
+                g = 0.02 + t * 0.04;  // 0.02 -> 0.06
+                b = 0.06 - t * 0.04;  // 0.06 -> 0.02
+            } else {
+                // West to North (270° to 360°)
+                const t = (normalizedRotation - Math.PI * 1.5) / (Math.PI / 2);
+                r = 0.10 - t * 0.08;  // 0.10 -> 0.02
+                g = 0.06 - t * 0.04;  // 0.06 -> 0.02
+                b = 0.02 + t * 0.06;  // 0.02 -> 0.08
+            }
+            
+            // Set the background color
+            gl.clearColor(r, g, b, 1.0);
+            
+            // Clear the canvas completely
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
+            // Update rotation uniforms (still needed for shader)
+            gl.uniform1f(uRotationX, rotationX);
+            gl.uniform1f(uRotationY, rotationY);
+            
+            // Calculate current positions and update history
+            const currentPointData = [];
+            const trailData = [];
+            
+            points.forEach(point => {
+                // First apply automatic slow rotation to the original position
+                const autoRotated = applyAutoRotation(point.original, time);
+                
+                // Then apply camera rotation to the auto-rotated position
+                const rotated = rotatePoint(autoRotated, rotationX, rotationY);
+                
+                // Add to history
+                point.history.push(rotated);
+                if (point.history.length > trailLength) {
+                    point.history.shift();  // Remove oldest position
+                }
+                
+                // Calculate twinkle brightness (0.2 to 1.2 range for dramatic effect)
+                const twinkle = 0.2 + smoothNoise(time * point.twinkleSpeed + point.twinkleOffset) * 1.0;
+                
+                // Apply twinkle to color
+                const twinkledColor = point.color.map(c => c * twinkle);
+                
+                // Add current point data [x, y, z, r, g, b]
+                currentPointData.push(...rotated, ...twinkledColor);
+                
+                // Create trail line segments
+                for (let i = 0; i < point.history.length - 1; i++) {
+                    const alpha = i / point.history.length;  // Fade older segments
+                    const pos1 = point.history[i];
+                    const pos2 = point.history[i + 1];
+                    
+                    // Add two vertices for the line segment with fading alpha
+                    trailData.push(...pos1, ...point.color.map(c => c * alpha));
+                    trailData.push(...pos2, ...point.color.map(c => c * alpha));
+                }
+            });
+            
+            // Draw trails first (behind the points)
+            if (trailData.length > 0) {
+                gl.bindBuffer(gl.ARRAY_BUFFER, trailBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(trailData), gl.DYNAMIC_DRAW);
+                
+                gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
+                gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
+                
+                // Set uniforms to identity (trails already rotated)
+                gl.uniform1f(uRotationX, 0);
+                gl.uniform1f(uRotationY, 0);
+                
+                gl.drawArrays(gl.LINES, 0, trailData.length / 6);
+            }
+            
+            // Draw current points
+            gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentPointData), gl.DYNAMIC_DRAW);
+            
+            gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
+            gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
+            
+            // Reset uniforms to 0 since we already rotated positions
+            gl.uniform1f(uRotationX, 0);
+            gl.uniform1f(uRotationY, 0);
+            
+            gl.drawArrays(gl.POINTS, 0, pointCount);
+            
+            // ============================================
+            // RENDER SHOOTING STARS WITH ENHANCED TRAILS
+            // ============================================
+            
+            if (shootingStars.length > 0) {
+                // Prepare shooting star data
+                const shootingStarPointData = [];
+                const shootingStarTrailData = [];
+                
+                shootingStars.forEach(star => {
+                    // Calculate fade-out based on lifetime
+                    const lifetimeProgress = star.lifetime / star.maxLifetime;
+                    const fadeFactor = 1.0 - lifetimeProgress;  // Fade out as lifetime progresses
+                    
+                    // Get the most recent position (already rotated in update loop)
+                    if (star.history.length > 0) {
+                        const currentPos = star.history[star.history.length - 1];
+                        
+                        // Shooting star point (brighter than regular stars)
+                        const brightness = 2.0 * fadeFactor;  // 2x brighter than regular stars
+                        shootingStarPointData.push(
+                            ...currentPos,
+                            star.color[0] * brightness,
+                            star.color[1] * brightness,
+                            star.color[2] * brightness
+                        );
+                        
+                        // Create enhanced trail with gradient fade
+                        for (let i = 0; i < star.history.length - 1; i++) {
+                            const trailProgress = i / star.history.length;
+                            const trailAlpha = trailProgress * fadeFactor;  // Fade both by position and lifetime
+                            const pos1 = star.history[i];
+                            const pos2 = star.history[i + 1];
+                            
+                            // Brighter trail with gradient
+                            const trailBrightness = trailAlpha * 1.5;
+                            shootingStarTrailData.push(
+                                ...pos1,
+                                star.color[0] * trailBrightness,
+                                star.color[1] * trailBrightness,
+                                star.color[2] * trailBrightness
+                            );
+                            shootingStarTrailData.push(
+                                ...pos2,
+                                star.color[0] * trailBrightness,
+                                star.color[1] * trailBrightness,
+                                star.color[2] * trailBrightness
+                            );
+                        }
+                    }
+                });
+                
+                // Use additive blending for shooting stars (glow effect)
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+                
+                // Draw shooting star trails
+                if (shootingStarTrailData.length > 0) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, trailBuffer);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(shootingStarTrailData), gl.DYNAMIC_DRAW);
+                    
+                    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
+                    gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
+                    
+                    gl.uniform1f(uRotationX, 0);
+                    gl.uniform1f(uRotationY, 0);
+                    
+                    gl.drawArrays(gl.LINES, 0, shootingStarTrailData.length / 6);
+                }
+                
+                // Draw shooting star points
+                if (shootingStarPointData.length > 0) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(shootingStarPointData), gl.DYNAMIC_DRAW);
+                    
+                    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
+                    gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
+                    
+                    gl.drawArrays(gl.POINTS, 0, shootingStarPointData.length / 6);
+                }
+                
+                // Restore normal blending
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            }
+            
+            // ============================================
+            // RENDER DIRECTION INDICATOR SPHERE
+            // ============================================
+            
+            // Calculate viewing direction vector
+            const viewDir = [
+                Math.sin(rotationY) * Math.cos(rotationX),
+                -Math.sin(rotationX),
+                -Math.cos(rotationY) * Math.cos(rotationX)
+            ];
+            
+            // Calculate brightness for all faces using smooth falloff (spotlight effect)
+            // This creates a circular gradient instead of irregular polygon selection
+            const faceBrightness = [];
+            
+            icosphere.faceNormals.forEach((normal, index) => {
+                const dot = normal[0] * viewDir[0] + normal[1] * viewDir[1] + normal[2] * viewDir[2];
+                
+                // Smooth falloff: faces pointing toward view get brightness, others fade to 0
+                // Using smoothstep for smooth circular gradient
+                const minDot = 0.5;   // Start fading here
+                const maxDot = 1.0;   // Full brightness here
+                
+                let brightness = 0;
+                if (dot > minDot) {
+                    // Smoothstep function for smooth interpolation
+                    const t = (dot - minDot) / (maxDot - minDot);
+                    brightness = t * t * (3.0 - 2.0 * t);  // Smoothstep formula
+                }
+                
+                faceBrightness.push({ index, brightness, dot });
+            });
+            
+            // Prepare wireframe edges for all faces
+            const wireframeData = [];
+            icosphere.faces.forEach((face, faceIndex) => {
+                const v0 = icosphere.vertices[face[0]];
+                const v1 = icosphere.vertices[face[1]];
+                const v2 = icosphere.vertices[face[2]];
+                
+                // Scale vertices
+                const sv0 = [v0[0] * 0.8, v0[1] * 0.8, v0[2] * 0.8];
+                const sv1 = [v1[0] * 0.8, v1[1] * 0.8, v1[2] * 0.8];
+                const sv2 = [v2[0] * 0.8, v2[1] * 0.8, v2[2] * 0.8];
+                
+                // White wireframe with subtle opacity
+                const wireColor = [1.0, 1.0, 1.0, 0.15];
+                
+                // Three edges per triangle
+                wireframeData.push(...sv0, ...wireColor);
+                wireframeData.push(...sv1, ...wireColor);
+                
+                wireframeData.push(...sv1, ...wireColor);
+                wireframeData.push(...sv2, ...wireColor);
+                
+                wireframeData.push(...sv2, ...wireColor);
+                wireframeData.push(...sv0, ...wireColor);
+            });
+            
+            // Prepare filled faces data with smooth gradient glow effect
+            const gradientFacesData = [];
+            faceBrightness.forEach((faceInfo) => {
+                // Only render faces with brightness > 0
+                if (faceInfo.brightness > 0) {
+                    const face = icosphere.faces[faceInfo.index];
+                    // Glow factor based on brightness (smooth circular gradient)
+                    const glow = 1.2 + faceInfo.brightness * 1.3;  // Range from 1.2 to 2.5
+                    
+                    face.forEach(vertexIndex => {
+                        const vertex = icosphere.vertices[vertexIndex];
+                        gradientFacesData.push(vertex[0] * 0.8, vertex[1] * 0.8, vertex[2] * 0.8);
+                        // Red/orange with brightness-based glow creating circular spotlight
+                        gradientFacesData.push(glow, 0.3 * glow, 0.2 * glow, faceInfo.brightness);
+                    });
+                }
+            });
+            
+            // Set up mini-viewport in bottom-right corner
+            const sphereSize = 150;
+            const spherePadding = 20;
+            const sphereX = canvas.width - sphereSize - spherePadding;
+            const sphereY = canvas.height - sphereSize - spherePadding;
+            
+            gl.viewport(sphereX, sphereY, sphereSize, sphereSize);
+            
+            // Don't clear the sphere area - let the main scene show through
+            
+            // Update projection for sphere (different aspect ratio)
+            const sphereProjection = createPerspectiveMatrix(Math.PI / 4, 1.0, 0.1, 100.0);
+            gl.uniformMatrix4fv(uProjection, false, sphereProjection);
+            
+            // Sphere doesn't rotate with view - it stays fixed
+            gl.uniform1f(uRotationX, 0);
+            gl.uniform1f(uRotationY, 0);
+            
+            // Enable alpha blending for transparent wireframe
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            
+            // Isometric rotation angles
+            const isoRotX = Math.atan(1 / Math.sqrt(2));  // ~35.264 degrees
+            const isoRotY = Math.PI / 4;  // 45 degrees
+            
+            // Helper function to apply isometric rotation
+            function applyIsometricRotation(x, y, z) {
+                // Rotate around Y axis
+                const cosY = Math.cos(isoRotY);
+                const sinY = Math.sin(isoRotY);
+                const x1 = x * cosY - z * sinY;
+                const z1 = x * sinY + z * cosY;
+                
+                // Rotate around X axis
+                const cosX = Math.cos(isoRotX);
+                const sinX = Math.sin(isoRotX);
+                const y1 = y * cosX - z1 * sinX;
+                const z2 = y * sinX + z1 * cosX;
+                
+                return [x1, y1, z2];
+            }
+            
+            // Draw wireframe edges (apply isometric rotation and push back in Z)
+            const transformedWireframeData = [];
+            for (let i = 0; i < wireframeData.length; i += 7) {
+                const [rx, ry, rz] = applyIsometricRotation(wireframeData[i], wireframeData[i + 1], wireframeData[i + 2]);
+                transformedWireframeData.push(rx, ry, rz - 2.5);
+                transformedWireframeData.push(wireframeData[i + 3], wireframeData[i + 4], wireframeData[i + 5], wireframeData[i + 6]);
+            }
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, sphereBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(transformedWireframeData), gl.DYNAMIC_DRAW);
+            
+            gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 28, 0);
+            gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 28, 12);
+            
+            gl.drawArrays(gl.LINES, 0, transformedWireframeData.length / 7);
+            
+            // Draw filled faces with smooth gradient glow (apply isometric rotation and push back in Z)
+            if (gradientFacesData.length > 0) {
+                // Use additive blending for glow effect
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+                
+                const transformedGradientFacesData = [];
+                for (let i = 0; i < gradientFacesData.length; i += 7) {
+                    const [rx, ry, rz] = applyIsometricRotation(gradientFacesData[i], gradientFacesData[i + 1], gradientFacesData[i + 2]);
+                    transformedGradientFacesData.push(rx, ry, rz - 2.5);
+                    transformedGradientFacesData.push(gradientFacesData[i + 3], gradientFacesData[i + 4], gradientFacesData[i + 5], gradientFacesData[i + 6]);
+                }
+                
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(transformedGradientFacesData), gl.DYNAMIC_DRAW);
+                
+                gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 28, 0);
+                gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 28, 12);
+                
+                gl.drawArrays(gl.TRIANGLES, 0, transformedGradientFacesData.length / 7);
+            }
+            
+            // Restore main viewport
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            gl.uniformMatrix4fv(uProjection, false, projectionMatrix);
+            
+            requestAnimationFrame(render);
+        }
+        
+        // Start the animation
+        render();
+        console.log('✓ Rendering started with position history trails!');
+        
+        // ============================================
+        // 10. HANDLE WINDOW RESIZE
+        // ============================================
+        
+        window.addEventListener('resize', function() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            
+            // Update projection matrix with new aspect ratio
+            const aspect = canvas.width / canvas.height;
+            const newProjectionMatrix = createPerspectiveMatrix(Math.PI / 4, aspect, 0.1, 100.0);
+            gl.uniformMatrix4fv(uProjection, false, newProjectionMatrix);
+        });
+        
+    </script>
+</body>
+</html>
