@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Sorter - WebGL Optimized</title>
+    <link rel="stylesheet" href="pixel-sorter.css">
+    <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+</head>
+<body>
+    <div id="dropzone">
+        <div id="message">Drop image here</div>
+        <div id="imageSelector" class="image-selector">
+            <h2>Select an image to begin</h2>
+            <div class="image-options">
+                <div class="image-option" data-image="assets/matisse.png">
+                    <img src="assets/matisse.png" alt="Matisse">
+                    <span>Matisse</span>
+                </div>
+                <div class="image-option" data-image="assets/warhol.png">
+                    <img src="assets/warhol.png" alt="Warhol">
+                    <span>Warhol</span>
+                </div>
+                <div class="image-option" data-image="assets/wes-anderson.png">
+                    <img src="assets/wes-anderson.png" alt="Wes Anderson">
+                    <span>Wes Anderson</span>
+                </div>
+            </div>
+            <p class="drop-hint">or drop your own image anywhere</p>
+        </div>
+        <canvas id="canvas"></canvas>
+    </div>
+
+
+    <div class="controls" id="controls">
+        <h3>Axis Formulas</h3>
+        
+        <div class="control-group">
+            <label for="coordSystem">Coordinate System</label>
+            <select id="coordSystem">
+                <option value="cartesian">Cartesian (Rectangular)</option>
+                <option value="polar" selected>Polar (Circular)</option>
+            </select>
+        </div>
+
+        <div class="control-group" id="polarExtensionGroup" style="display: block;">
+            <label for="polarExtension">Polar Extension</label>
+            <select id="polarExtension">
+                <option value="none">None (Circle only)</option>
+                <option value="repeat">Repeat (Tile pattern)</option>
+                <option value="mirror">Mirror (Reflect pattern)</option>
+                <option value="invert" selected>Invert (Flip radius)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <div class="range-label">
+                <label for="xScroll">X-Axis Scroll</label>
+                <span class="range-value" id="xScrollValue">0%</span>
+            </div>
+            <input type="range" id="xScroll" min="0" max="100" value="0" step="1">
+            <div class="auto-checkbox">
+                <input type="checkbox" id="xScrollAuto">
+                <label for="xScrollAuto">Auto</label>
+                <input type="number" id="xScrollDuration" min="50" max="5000" value="300" step="50">
+                <span class="duration-label">ms</span>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="range-label">
+                <label for="yScroll">Y-Axis Scroll</label>
+                <span class="range-value" id="yScrollValue">0%</span>
+            </div>
+            <input type="range" id="yScroll" min="0" max="100" value="0" step="1">
+            <div class="auto-checkbox">
+                <input type="checkbox" id="yScrollAuto" checked>
+                <label for="yScrollAuto">Auto</label>
+                <input type="number" id="yScrollDuration" min="50" max="5000" value="50" step="50">
+                <span class="duration-label">ms</span>
+            </div>
+        </div>
+        
+        <div class="control-group">
+            <label for="xAxis">X-Axis (Horizontal)</label>
+            <select id="xAxis">
+                <option value="hue" selected>Hue (color wheel)</option>
+                <option value="saturation">Saturation (gray → vivid)</option>
+                <option value="lightness">Lightness (dark → bright)</option>
+                <option value="red">Red channel</option>
+                <option value="green">Green channel</option>
+                <option value="blue">Blue channel</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="yAxis">Y-Axis (Vertical)</label>
+            <select id="yAxis">
+                <option value="saturation">Saturation (gray → vivid)</option>
+                <option value="lightness">Lightness (dark → bright)</option>
+                <option value="combined" selected>Combined (S+L)/2</option>
+                <option value="original">(1-S) × L (original)</option>
+                <option value="hue">Hue (color wheel)</option>
+                <option value="red">Red channel</option>
+                <option value="green">Green channel</option>
+                <option value="blue">Blue channel</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="animationType">Animation Order</label>
+            <select id="animationType">
+                <option value="hue">Hue (color wheel)</option>
+                <option value="saturation">Saturation (gray → vivid)</option>
+                <option value="lightness" selected>Lightness (dark → bright)</option>
+                <option value="red">Red channel</option>
+                <option value="green">Green channel</option>
+                <option value="blue">Blue channel</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <button id="animateBtn">Animate</button>
+        </div>
+
+        <div class="control-group">
+            <button id="downloadGifBtn">Download GIF</button>
+        </div>
+    </div>
+
+    <div class="fps-counter" id="fpsCounter">FPS: 60</div>
+
+    <!-- WebGL Shaders -->
+    <script id="vertex-shader" type="x-shader/x-vertex">
+        precision mediump float;
+        
+        // Vertex shader - processes each pixel in parallel on GPU
+        attribute vec3 a_color;      // RGB color (0-1 range)
+        attribute vec3 a_hsl;        // Pre-computed HSL (0-1 range)
+        
+        uniform vec2 u_canvasSize;
+        uniform int u_xFormula;
+        uniform int u_yFormula;
+        uniform int u_coordSystem;
+        uniform int u_polarExtension;
+        uniform float u_xOffset;
+        uniform float u_yOffset;
+        
+        varying vec3 v_color;
+        
+        // Calculate axis value based on formula
+        float getAxisValue(vec3 rgb, vec3 hsl, int formula) {
+            if (formula == 0) return hsl.x;      // hue
+            if (formula == 1) return hsl.y;      // saturation
+            if (formula == 2) return hsl.z;      // lightness
+            if (formula == 3) return rgb.r;      // red
+            if (formula == 4) return rgb.g;      // green
+            if (formula == 5) return rgb.b;      // blue
+            if (formula == 6) return (hsl.y + hsl.z) * 0.5;  // combined
+            if (formula == 7) return (1.0 - hsl.y) * hsl.z;  // original
+            return hsl.x;
+        }
+        
+        void main() {
+            // Calculate axis values for this pixel
+            float xValue = getAxisValue(a_color, a_hsl, u_xFormula);
+            float yValue = getAxisValue(a_color, a_hsl, u_yFormula);
+            
+            // Apply scrolling offsets with wrapping
+            float wrappedX = fract(xValue - u_xOffset);
+            float wrappedY = fract(yValue - u_yOffset);
+            
+            vec2 position;
+            
+            if (u_coordSystem == 1) {  // Polar coordinates
+                float angle = wrappedX * 2.0 * 3.14159265359;
+                vec2 center = vec2(0.0, 0.0);  // NDC center
+                float maxRadius = 1.414;  // sqrt(2) - diagonal to corner in NDC
+                
+                float radius;
+                if (u_polarExtension == 0) {  // none
+                    radius = wrappedY * 1.0;  // Scale to fit
+                } else if (u_polarExtension == 1) {  // repeat
+                    radius = fract(wrappedY * 2.0) * maxRadius;
+                } else if (u_polarExtension == 2) {  // mirror
+                    float mirY = wrappedY * 2.0;
+                    radius = (mirY < 1.0 ? mirY : 2.0 - mirY) * maxRadius;
+                } else if (u_polarExtension == 3) {  // invert
+                    radius = (1.0 - wrappedY) * maxRadius;
+                } else {
+                    radius = wrappedY * 1.0;
+                }
+                
+                position = center + vec2(radius * cos(angle), radius * sin(angle));
+            } else {  // Cartesian coordinates
+                // Map from 0-1 to NDC -1 to 1
+                position = vec2(wrappedX * 2.0 - 1.0, wrappedY * 2.0 - 1.0);
+            }
+            
+            // Pass color to fragment shader
+            v_color = a_color;
+            
+            gl_Position = vec4(position, 0.0, 1.0);
+            gl_PointSize = 1.0;
+        }
+    </script>
+
+    <script id="fragment-shader" type="x-shader/x-fragment">
+        precision mediump float;
+        
+        varying vec3 v_color;
+        
+        void main() {
+            gl_FragColor = vec4(v_color, 1.0);
+        }
+    </script>
+
+    <script src="pixel-sorter-bloom.js"></script>
+    <script src="pixel-sorter.js"></script>
+</body>
+</html>

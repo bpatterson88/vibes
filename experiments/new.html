@@ -22,10 +22,98 @@
             height: 100vh;
             cursor: default;
         }
+        
+        /* Reticule (crosshair) in center of screen */
+        #reticule {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30px;
+            height: 30px;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        #reticule::before,
+        #reticule::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.8);
+        }
+        
+        /* Horizontal line */
+        #reticule::before {
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            transform: translateY(-50%);
+        }
+        
+        /* Vertical line */
+        #reticule::after {
+            left: 50%;
+            top: 0;
+            width: 2px;
+            height: 100%;
+            transform: translateX(-50%);
+        }
+        
+        /* Center dot */
+        #reticule-dot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 4px;
+            height: 4px;
+            background: rgba(255, 0, 0, 0.9);
+            border-radius: 50%;
+        }
+        
+        /* Distance display in bottom right */
+        #distance-display {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 10px 15px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #00ff00;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            border-radius: 5px;
+            pointer-events: none;
+            z-index: 100;
+            min-width: 200px;
+        }
+        
+        #distance-display .label {
+            color: #888;
+            font-size: 12px;
+        }
+        
+        #distance-display .value {
+            color: #00ff00;
+            font-weight: bold;
+            font-size: 18px;
+        }
     </style>
 </head>
 <body>
     <canvas id="glCanvas"></canvas>
+    
+    <!-- Reticule (crosshair) in center -->
+    <div id="reticule">
+        <div id="reticule-dot"></div>
+    </div>
+    
+    <!-- Distance display in bottom right -->
+    <div id="distance-display">
+        <div class="label">TARGET DISTANCE</div>
+        <div class="value">--</div>
+    </div>
 
     <script>
         // ============================================
@@ -171,18 +259,18 @@
         // 6. SET UP VERTEX DATA - 3D POINT FIELD
         // ============================================
         
-        // Create randomly scattered points
-        const pointCount = 3000;  // Number of points
-        const spreadRadius = 3.0;  // How far points can be from center
+        // Create randomly scattered stars
+        const starCount = 3000;  // Number of stars
+        const spreadRadius = 3.0;  // How far stars can be from center
         const trailLength = 15;  // Number of historical positions to keep (half as long)
         
         // Store original positions and colors
-        const points = [];
+        const stars = [];
         
         // Array to store shooting stars
         const shootingStars = [];
         
-        for (let i = 0; i < pointCount; i++) {
+        for (let i = 0; i < starCount; i++) {
             // Random position within a sphere (using spherical coordinates for even distribution)
             const theta = Math.random() * Math.PI * 2;  // Azimuthal angle
             const phi = Math.acos(2 * Math.random() - 1);  // Polar angle
@@ -197,7 +285,7 @@
             const g = Math.random() * 0.5 + 0.5;
             const b = Math.random() * 0.5 + 0.5;
             
-            points.push({
+            stars.push({
                 original: [px, py, pz],
                 color: [r, g, b],
                 history: [],  // Will store [x, y, z] for each frame
@@ -206,13 +294,115 @@
             });
         }
         
-        // Create dynamic buffer for current points
-        const pointBuffer = gl.createBuffer();
+        // Create dynamic buffer for current stars
+        const starBuffer = gl.createBuffer();
         
         // Create dynamic buffer for trail lines
         const trailBuffer = gl.createBuffer();
         
-        console.log(`✓ Created ${pointCount} points with trail support`);
+        console.log(`✓ Created ${starCount} stars with trail support`);
+        
+        // ============================================
+        // 6.3. CREATE PYRAMID GEOMETRY FOR ENEMIES
+        // ============================================
+        
+        function createPyramid(size = 1.0) {
+            // Pyramid with square base
+            const halfSize = size / 2;
+            
+            // 5 vertices: 4 for base, 1 for apex
+            const vertices = [
+                // Base vertices (square on XY plane)
+                [-halfSize, -halfSize, 0],  // 0: bottom-left
+                [halfSize, -halfSize, 0],   // 1: bottom-right
+                [halfSize, halfSize, 0],    // 2: top-right
+                [-halfSize, halfSize, 0],   // 3: top-left
+                // Apex
+                [0, 0, size]                // 4: apex (pointing in +Z direction, toward viewer)
+            ];
+            
+            // Triangular faces (5 faces total: 4 sides + 1 base)
+            const faces = [
+                // 4 side faces (triangles pointing toward apex)
+                [0, 1, 4],  // Front face
+                [1, 2, 4],  // Right face
+                [2, 3, 4],  // Back face
+                [3, 0, 4],  // Left face
+                // Base face (2 triangles forming square)
+                [0, 2, 1],
+                [0, 3, 2]
+            ];
+            
+            return { vertices, faces };
+        }
+        
+        const pyramidGeometry = createPyramid(0.3);  // Base size for pyramids
+        console.log('✓ Pyramid geometry created');
+        
+        // Enemy system
+        const enemies = [];
+        const enemyBuffer = gl.createBuffer();
+        
+        // Function to spawn an enemy
+        function spawnEnemy() {
+            // Random position around the periphery, far from camera
+            const angle = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);  // Random spherical angle
+            const spawnDistance = 8.0 + Math.random() * 6.0;  // Spawn 8-14 units from origin (varied distance)
+            
+            const spawnX = spawnDistance * Math.sin(phi) * Math.cos(angle);
+            const spawnY = spawnDistance * Math.sin(phi) * Math.sin(angle);
+            const spawnZ = spawnDistance * Math.cos(phi);
+            
+            // Calculate direction vector from spawn position to origin (0,0,0)
+            const dirX = 0 - spawnX;
+            const dirY = 0 - spawnY;
+            const dirZ = 0 - spawnZ;
+            
+            // Normalize the direction vector
+            const distance = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+            
+            // Calculate speed to reach origin in 20-30 seconds
+            // At 60fps: 20-30 seconds = 1200-1800 frames
+            // Speed = distance / frames
+            const travelTime = 1200 + Math.random() * 600;  // 1200-1800 frames (20-30 seconds)
+            const speed = distance / travelTime;
+            
+            // Calculate rotation to point apex toward origin
+            // The pyramid's apex points in +Z direction by default
+            // We need to rotate it to point toward (0,0,0)
+            const horizontalAngle = Math.atan2(dirX, dirZ);  // Rotation around Y axis
+            const verticalAngle = Math.atan2(dirY, Math.sqrt(dirX * dirX + dirZ * dirZ));  // Rotation around X axis
+            
+            const enemy = {
+                position: [spawnX, spawnY, spawnZ],
+                velocity: [
+                    (dirX / distance) * speed,
+                    (dirY / distance) * speed,
+                    (dirZ / distance) * speed
+                ],
+                rotationY: horizontalAngle,  // Fixed rotation pointing toward origin
+                rotationX: -verticalAngle,   // Fixed rotation pointing toward origin
+                size: 0.6 + Math.random() * 0.4,  // 0.6-1.0 (much larger than stars)
+                color: [
+                    0.8 + Math.random() * 0.2,  // Red: 0.8-1.0
+                    0.1 + Math.random() * 0.1,  // Green: 0.1-0.2 (minimal)
+                    0.1 + Math.random() * 0.1   // Blue: 0.1-0.2 (minimal)
+                ]
+            };
+            
+            enemies.push(enemy);
+            console.log('👾 Enemy spawned!');
+        }
+        
+        // Spawn initial enemies
+        for (let i = 0; i < 5; i++) {
+            spawnEnemy();
+        }
+        
+        let lastEnemySpawnTime = 0;
+        
+        console.log('✓ Enemy system initialized');
         
         // ============================================
         // 6.5. CREATE ICOSPHERE FOR DIRECTION INDICATOR
@@ -303,9 +493,13 @@
             return { vertices, faces, faceNormals };
         }
         
-        // Generate icosphere with 2 subdivisions (~80 faces)
+        // Generate icosphere with 2 subdivisions (~80 faces) for direction indicator
         const icosphere = createIcosphere(2);
         console.log(`✓ Created icosphere: ${icosphere.vertices.length} vertices, ${icosphere.faces.length} faces`);
+        
+        // Generate higher-resolution icosphere for planets (smoother surface)
+        const planetGeometry = createIcosphere(3);
+        console.log(`✓ Created planet geometry: ${planetGeometry.vertices.length} vertices, ${planetGeometry.faces.length} faces`);
         
         // Create sphere vertex buffer (will be updated per-frame with colors)
         const sphereBuffer = gl.createBuffer();
@@ -317,6 +511,59 @@
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, sphereIndices, gl.STATIC_DRAW);
         
         console.log('✓ Sphere buffers created');
+        
+        // ============================================
+        // 6.6. CREATE PLANET SYSTEM
+        // ============================================
+        
+        const planetCount = 15;
+        const planets = [];
+        
+        // Earth-like color palettes for variety
+        const planetColorPalettes = [
+            // Ocean blue planets
+            { base: [0.2, 0.4, 0.8], highlight: [0.4, 0.6, 0.95] },
+            { base: [0.15, 0.35, 0.75], highlight: [0.35, 0.55, 0.9] },
+            // Green/blue earth-like
+            { base: [0.3, 0.6, 0.4], highlight: [0.5, 0.8, 0.6] },
+            { base: [0.25, 0.55, 0.45], highlight: [0.45, 0.75, 0.65] },
+            // Brown/tan terrestrial
+            { base: [0.6, 0.5, 0.3], highlight: [0.8, 0.7, 0.5] },
+            { base: [0.55, 0.45, 0.35], highlight: [0.75, 0.65, 0.55] },
+            // Cyan water worlds
+            { base: [0.3, 0.7, 0.7], highlight: [0.5, 0.9, 0.9] },
+            // Dark blue deep ocean
+            { base: [0.15, 0.25, 0.5], highlight: [0.3, 0.45, 0.7] }
+        ];
+        
+        for (let i = 0; i < planetCount; i++) {
+            // Random position within sphere
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            const radius = Math.cbrt(Math.random()) * spreadRadius;
+            
+            const px = radius * Math.sin(phi) * Math.cos(theta);
+            const py = radius * Math.sin(phi) * Math.sin(theta);
+            const pz = radius * Math.cos(phi);
+            
+            // Random size between 0.05-0.1 units (diameter)
+            const size = 0.05 + Math.random() * 0.05;
+            
+            // Pick random color palette
+            const palette = planetColorPalettes[Math.floor(Math.random() * planetColorPalettes.length)];
+            
+            planets.push({
+                original: [px, py, pz],
+                size: size,
+                colorBase: palette.base,
+                colorHighlight: palette.highlight,
+                rotationOffset: Math.random() * Math.PI * 2  // Random starting rotation
+            });
+        }
+        
+        const planetBuffer = gl.createBuffer();
+        
+        console.log(`✓ Created ${planetCount} planets with shading`);
         
         // ============================================
         // 7. CONFIGURE VERTEX ATTRIBUTES
@@ -354,6 +601,10 @@
         const uProjection = gl.getUniformLocation(program, 'uProjection');
         
         console.log('✓ Vertex attributes configured');
+        
+        // Enable depth testing for proper 3D occlusion
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LESS);
         
         // ============================================
         // 8. RENDERING SETUP
@@ -438,6 +689,108 @@
         });
         
         console.log('✓ Pointer lock controls enabled (click to activate, ESC to release)');
+        
+        // ============================================
+        // 9.5. DISTANCE TRACKING SYSTEM
+        // ============================================
+        
+        // Get reference to distance display element
+        const distanceDisplay = document.querySelector('#distance-display .value');
+        
+        // Helper function to find the closest object to the center reticule
+        function findClosestObjectToCenter() {
+            let closestObject = null;
+            let closestDistanceToRay = Infinity;
+            let closestActualDistance = 0;
+            
+            // Calculate viewing direction (forward is -Z in view space)
+            const viewDir = [0, 0, -1];  // Looking down -Z axis in view space
+            
+            // Check all stars
+            stars.forEach((star, index) => {
+                // Apply auto-rotation and camera rotation to get view space position
+                const autoRotated = applyAutoRotation(star.original, time);
+                const viewSpacePos = rotatePoint(autoRotated, rotationX, rotationY);
+                
+                // Only consider objects in front of camera (negative Z in view space)
+                if (viewSpacePos[2] < 0) {
+                    // Calculate distance from center ray
+                    // The ray goes through origin in direction [0, 0, -1]
+                    // Distance from point to ray is just sqrt(x² + y²)
+                    const distanceToRay = Math.sqrt(viewSpacePos[0] * viewSpacePos[0] + viewSpacePos[1] * viewSpacePos[1]);
+                    
+                    // Weight by depth to prefer closer objects
+                    const weightedDistance = distanceToRay / Math.abs(viewSpacePos[2]);
+                    
+                    if (weightedDistance < closestDistanceToRay && weightedDistance < 0.5) {  // 0.5 is max angular distance
+                        closestDistanceToRay = weightedDistance;
+                        // Calculate actual distance from origin to object in world space
+                        closestActualDistance = Math.sqrt(
+                            autoRotated[0] * autoRotated[0] +
+                            autoRotated[1] * autoRotated[1] +
+                            autoRotated[2] * autoRotated[2]
+                        );
+                        closestObject = { type: 'star', index };
+                    }
+                }
+            });
+            
+            // Check all planets
+            planets.forEach((planet, index) => {
+                const autoRotated = applyAutoRotation(planet.original, time);
+                const viewSpacePos = rotatePoint(autoRotated, rotationX, rotationY);
+                
+                if (viewSpacePos[2] < 0) {
+                    const distanceToRay = Math.sqrt(viewSpacePos[0] * viewSpacePos[0] + viewSpacePos[1] * viewSpacePos[1]);
+                    const weightedDistance = distanceToRay / Math.abs(viewSpacePos[2]);
+                    
+                    // Planets have size, so include a radius check
+                    const effectiveDistance = Math.max(0, weightedDistance - planet.size);
+                    
+                    if (effectiveDistance < closestDistanceToRay && effectiveDistance < 0.5) {
+                        closestDistanceToRay = effectiveDistance;
+                        closestActualDistance = Math.sqrt(
+                            autoRotated[0] * autoRotated[0] +
+                            autoRotated[1] * autoRotated[1] +
+                            autoRotated[2] * autoRotated[2]
+                        );
+                        closestObject = { type: 'planet', index };
+                    }
+                }
+            });
+            
+            // Check all enemies
+            enemies.forEach((enemy, index) => {
+                const viewSpacePos = rotatePoint(enemy.position, rotationX, rotationY);
+                
+                if (viewSpacePos[2] < 0) {
+                    const distanceToRay = Math.sqrt(viewSpacePos[0] * viewSpacePos[0] + viewSpacePos[1] * viewSpacePos[1]);
+                    const weightedDistance = distanceToRay / Math.abs(viewSpacePos[2]);
+                    
+                    // Enemies have size, so include a radius check
+                    const effectiveDistance = Math.max(0, weightedDistance - enemy.size);
+                    
+                    if (effectiveDistance < closestDistanceToRay && effectiveDistance < 0.5) {
+                        closestDistanceToRay = effectiveDistance;
+                        closestActualDistance = Math.sqrt(
+                            enemy.position[0] * enemy.position[0] +
+                            enemy.position[1] * enemy.position[1] +
+                            enemy.position[2] * enemy.position[2]
+                        );
+                        closestObject = { type: 'enemy', index };
+                    }
+                }
+            });
+            
+            if (closestObject) {
+                return {
+                    object: closestObject,
+                    distance: closestActualDistance
+                };
+            }
+            
+            return null;
+        }
         
         // ============================================
         // 10. ANIMATION LOOP WITH POSITION HISTORY TRAILS
@@ -576,6 +929,42 @@
                 }
             }
             
+            // ============================================
+            // UPDATE ENEMIES
+            // ============================================
+            
+            // Update enemy positions (no rotation update - enemies maintain fixed orientation)
+            enemies.forEach(enemy => {
+                // Move toward origin (0,0,0) using velocity vector
+                enemy.position[0] += enemy.velocity[0];
+                enemy.position[1] += enemy.velocity[1];
+                enemy.position[2] += enemy.velocity[2];
+            });
+            
+            // Remove enemies that have reached the origin (0,0,0)
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemy = enemies[i];
+                // Calculate distance from origin
+                const distanceFromOrigin = Math.sqrt(
+                    enemy.position[0] * enemy.position[0] +
+                    enemy.position[1] * enemy.position[1] +
+                    enemy.position[2] * enemy.position[2]
+                );
+                
+                // Despawn when very close to origin (within 0.3 units)
+                if (distanceFromOrigin < 0.3) {
+                    enemies.splice(i, 1);
+                    console.log('💥 Enemy reached the origin and despawned!');
+                }
+            }
+            
+            // Spawn new enemies periodically
+            const timeSinceLastEnemy = time - lastEnemySpawnTime;
+            if (timeSinceLastEnemy > .5 && enemies.length < 50) {  // Spawn every 5 seconds, max 8
+                spawnEnemy();
+                lastEnemySpawnTime = time;
+            }
+            
             // Calculate background color based on viewing direction
             // Normalize rotation to 0-2π range
             let normalizedRotation = ((rotationY % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2);
@@ -617,52 +1006,52 @@
             // Set the background color
             gl.clearColor(r, g, b, 1.0);
             
-            // Clear the canvas completely
-            gl.clear(gl.COLOR_BUFFER_BIT);
+            // Clear the canvas and depth buffer
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
             
             // Update rotation uniforms (still needed for shader)
             gl.uniform1f(uRotationX, rotationX);
             gl.uniform1f(uRotationY, rotationY);
             
             // Calculate current positions and update history
-            const currentPointData = [];
+            const currentStarData = [];
             const trailData = [];
             
-            points.forEach(point => {
+            stars.forEach(star => {
                 // First apply automatic slow rotation to the original position
-                const autoRotated = applyAutoRotation(point.original, time);
+                const autoRotated = applyAutoRotation(star.original, time);
                 
                 // Then apply camera rotation to the auto-rotated position
                 const rotated = rotatePoint(autoRotated, rotationX, rotationY);
                 
                 // Add to history
-                point.history.push(rotated);
-                if (point.history.length > trailLength) {
-                    point.history.shift();  // Remove oldest position
+                star.history.push(rotated);
+                if (star.history.length > trailLength) {
+                    star.history.shift();  // Remove oldest position
                 }
                 
                 // Calculate twinkle brightness (0.2 to 1.2 range for dramatic effect)
-                const twinkle = 0.2 + smoothNoise(time * point.twinkleSpeed + point.twinkleOffset) * 1.0;
+                const twinkle = 0.2 + smoothNoise(time * star.twinkleSpeed + star.twinkleOffset) * 1.0;
                 
                 // Apply twinkle to color
-                const twinkledColor = point.color.map(c => c * twinkle);
+                const twinkledColor = star.color.map(c => c * twinkle);
                 
-                // Add current point data [x, y, z, r, g, b]
-                currentPointData.push(...rotated, ...twinkledColor);
+                // Add current star data [x, y, z, r, g, b]
+                currentStarData.push(...rotated, ...twinkledColor);
                 
                 // Create trail line segments
-                for (let i = 0; i < point.history.length - 1; i++) {
-                    const alpha = i / point.history.length;  // Fade older segments
-                    const pos1 = point.history[i];
-                    const pos2 = point.history[i + 1];
+                for (let i = 0; i < star.history.length - 1; i++) {
+                    const alpha = i / star.history.length;  // Fade older segments
+                    const pos1 = star.history[i];
+                    const pos2 = star.history[i + 1];
                     
                     // Add two vertices for the line segment with fading alpha
-                    trailData.push(...pos1, ...point.color.map(c => c * alpha));
-                    trailData.push(...pos2, ...point.color.map(c => c * alpha));
+                    trailData.push(...pos1, ...star.color.map(c => c * alpha));
+                    trailData.push(...pos2, ...star.color.map(c => c * alpha));
                 }
             });
             
-            // Draw trails first (behind the points)
+            // Draw trails first (behind the stars)
             if (trailData.length > 0) {
                 gl.bindBuffer(gl.ARRAY_BUFFER, trailBuffer);
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(trailData), gl.DYNAMIC_DRAW);
@@ -677,9 +1066,9 @@
                 gl.drawArrays(gl.LINES, 0, trailData.length / 6);
             }
             
-            // Draw current points
-            gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentPointData), gl.DYNAMIC_DRAW);
+            // Draw current stars
+            gl.bindBuffer(gl.ARRAY_BUFFER, starBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(currentStarData), gl.DYNAMIC_DRAW);
             
             gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
             gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
@@ -688,7 +1077,87 @@
             gl.uniform1f(uRotationX, 0);
             gl.uniform1f(uRotationY, 0);
             
-            gl.drawArrays(gl.POINTS, 0, pointCount);
+            gl.drawArrays(gl.POINTS, 0, starCount);
+            
+            // ============================================
+            // RENDER PLANETS (3D SPHERES) - After stars so they're always on top
+            // ============================================
+            
+            if (planets.length > 0) {
+                const planetData = [];
+                
+                // Light direction (from upper-right-front)
+                const lightDir = [0.5, 0.7, 0.8];
+                const lightLen = Math.sqrt(lightDir[0]**2 + lightDir[1]**2 + lightDir[2]**2);
+                const lightDirNorm = [lightDir[0]/lightLen, lightDir[1]/lightLen, lightDir[2]/lightLen];
+                
+                planets.forEach(planet => {
+                    // Apply auto-rotation to planet position
+                    const autoRotated = applyAutoRotation(planet.original, time);
+                    
+                    // Apply camera rotation
+                    const rotated = rotatePoint(autoRotated, rotationX, rotationY);
+                    
+                    // For each triangle face in the planet geometry
+                    planetGeometry.faces.forEach(face => {
+                        face.forEach(vertexIndex => {
+                            const vertex = planetGeometry.vertices[vertexIndex];
+                            
+                            // Scale vertex by planet size
+                            const scaledX = vertex[0] * planet.size;
+                            const scaledY = vertex[1] * planet.size;
+                            const scaledZ = vertex[2] * planet.size;
+                            
+                            // Translate to planet position
+                            const worldX = scaledX + rotated[0];
+                            const worldY = scaledY + rotated[1];
+                            const worldZ = scaledZ + rotated[2];
+                            
+                            // Normal is just the normalized vertex position (for sphere)
+                            const normal = vertex;
+                            
+                            // Calculate lighting (Lambert diffuse)
+                            const dotProduct = normal[0] * lightDirNorm[0] + 
+                                             normal[1] * lightDirNorm[1] + 
+                                             normal[2] * lightDirNorm[2];
+                            const lightIntensity = Math.max(dotProduct * 0.7 + 0.3, 0.1); // 0.1 to 1.0
+                            
+                            // Interpolate between base and highlight colors based on lighting
+                            const mixFactor = Math.max((dotProduct + 1.0) / 2.0, 0.0); // 0 to 1
+                            const r = planet.colorBase[0] * (1 - mixFactor) + planet.colorHighlight[0] * mixFactor;
+                            const g = planet.colorBase[1] * (1 - mixFactor) + planet.colorHighlight[1] * mixFactor;
+                            const b = planet.colorBase[2] * (1 - mixFactor) + planet.colorHighlight[2] * mixFactor;
+                            
+                            // Apply lighting intensity (fully opaque)
+                            const finalR = r * lightIntensity;
+                            const finalG = g * lightIntensity;
+                            const finalB = b * lightIntensity;
+                            
+                            planetData.push(worldX, worldY, worldZ, finalR, finalG, finalB);
+                        });
+                    });
+                });
+                
+                // Render planets (disable depth test so they always render on top of stars)
+                if (planetData.length > 0) {
+                    gl.disable(gl.DEPTH_TEST);
+                    
+                    gl.bindBuffer(gl.ARRAY_BUFFER, planetBuffer);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(planetData), gl.DYNAMIC_DRAW);
+                    
+                    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
+                    gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
+                    
+                    // Already rotated, so set uniforms to identity
+                    gl.uniform1f(uRotationX, 0);
+                    gl.uniform1f(uRotationY, 0);
+                    
+                    gl.drawArrays(gl.TRIANGLES, 0, planetData.length / 6);
+                    
+                    // Re-enable depth test for other objects
+                    gl.enable(gl.DEPTH_TEST);
+                }
+            }
             
             // ============================================
             // RENDER SHOOTING STARS WITH ENHANCED TRAILS
@@ -761,7 +1230,7 @@
                 
                 // Draw shooting star points
                 if (shootingStarPointData.length > 0) {
-                    gl.bindBuffer(gl.ARRAY_BUFFER, pointBuffer);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, starBuffer);
                     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(shootingStarPointData), gl.DYNAMIC_DRAW);
                     
                     gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
@@ -772,6 +1241,61 @@
                 
                 // Restore normal blending
                 gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            }
+            
+            // ============================================
+            // RENDER ENEMIES (PYRAMIDS)
+            // ============================================
+            
+            if (enemies.length > 0) {
+                const enemyData = [];
+                
+                enemies.forEach(enemy => {
+                    // For each enemy, transform pyramid vertices
+                    pyramidGeometry.faces.forEach(face => {
+                        face.forEach(vertexIndex => {
+                            const baseVertex = pyramidGeometry.vertices[vertexIndex];
+                            
+                            // Apply enemy's fixed rotation to point apex toward origin
+                            // First rotate around Y axis (horizontal)
+                            const cosRotY = Math.cos(enemy.rotationY);
+                            const sinRotY = Math.sin(enemy.rotationY);
+                            const x1 = baseVertex[0] * cosRotY - baseVertex[2] * sinRotY;
+                            const z1 = baseVertex[0] * sinRotY + baseVertex[2] * cosRotY;
+                            
+                            // Then rotate around X axis (vertical)
+                            const cosRotX = Math.cos(enemy.rotationX);
+                            const sinRotX = Math.sin(enemy.rotationX);
+                            const y1 = baseVertex[1] * cosRotX - z1 * sinRotX;
+                            const z2 = baseVertex[1] * sinRotX + z1 * cosRotX;
+                            
+                            // Scale and translate to enemy position
+                            const worldX = x1 * enemy.size + enemy.position[0];
+                            const worldY = y1 * enemy.size + enemy.position[1];
+                            const worldZ = z2 * enemy.size + enemy.position[2];
+                            
+                            // Apply camera rotation
+                            const cameraRotated = rotatePoint([worldX, worldY, worldZ], rotationX, rotationY);
+                            
+                            // Add vertex position and color
+                            enemyData.push(...cameraRotated, ...enemy.color);
+                        });
+                    });
+                });
+                
+                if (enemyData.length > 0) {
+                    gl.bindBuffer(gl.ARRAY_BUFFER, enemyBuffer);
+                    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(enemyData), gl.DYNAMIC_DRAW);
+                    
+                    gl.vertexAttribPointer(aPosition, 3, gl.FLOAT, false, 24, 0);
+                    gl.vertexAttribPointer(aColor, 3, gl.FLOAT, false, 24, 12);
+                    
+                    // Already rotated, so set uniforms to identity
+                    gl.uniform1f(uRotationX, 0);
+                    gl.uniform1f(uRotationY, 0);
+                    
+                    gl.drawArrays(gl.TRIANGLES, 0, enemyData.length / 6);
+                }
             }
             
             // ============================================
@@ -932,6 +1456,30 @@
             // Restore main viewport
             gl.viewport(0, 0, canvas.width, canvas.height);
             gl.uniformMatrix4fv(uProjection, false, projectionMatrix);
+            
+            // ============================================
+            // UPDATE DISTANCE DISPLAY
+            // ============================================
+            
+            const targetInfo = findClosestObjectToCenter();
+            if (targetInfo) {
+                // Format distance with 2 decimal places
+                const distanceText = targetInfo.distance.toFixed(2) + ' units';
+                distanceDisplay.textContent = distanceText;
+                
+                // Optional: Change color based on object type
+                if (targetInfo.object.type === 'enemy') {
+                    distanceDisplay.style.color = '#ff4444';  // Red for enemies
+                } else if (targetInfo.object.type === 'planet') {
+                    distanceDisplay.style.color = '#44aaff';  // Blue for planets
+                } else {
+                    distanceDisplay.style.color = '#00ff00';  // Green for stars
+                }
+            } else {
+                // No object targeted
+                distanceDisplay.textContent = '--';
+                distanceDisplay.style.color = '#00ff00';
+            }
             
             requestAnimationFrame(render);
         }

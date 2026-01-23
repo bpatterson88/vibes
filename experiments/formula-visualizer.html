@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Y-Axis Formula Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a2e;
+            color: #fff;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #4ecdc4;
+        }
+
+        .info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+
+        .formula {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+            color: #ffc107;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .visualization {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        .visualization h2 {
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            color: #4ecdc4;
+        }
+
+        canvas {
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            max-width: 100%;
+            background: black;
+        }
+
+        .legend {
+            margin-top: 15px;
+            font-size: 0.9em;
+            line-height: 1.6;
+        }
+
+        .stats {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+
+        .stats h2 {
+            margin-bottom: 15px;
+            color: #4ecdc4;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .warning {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            color: #ffc107;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Y-Axis Formula Visualizer</h1>
+        
+        <div class="info">
+            <h3>Current Formula:</h3>
+            <div class="formula">
+                Y = (1 - (Saturation / 100)) × (Lightness / 100) × CanvasSize
+            </div>
+            <p style="margin-top: 10px;">
+                This visualization shows how every possible (Saturation, Lightness) combination 
+                maps to a Y-coordinate. Dark areas indicate low Y values (top of canvas), 
+                bright areas indicate high Y values (bottom of canvas).
+            </p>
+        </div>
+
+        <div class="visualization">
+            <h2>Where do colors end up on the Y-axis?</h2>
+            <canvas id="distribution" width="800" height="400"></canvas>
+            <div class="legend" style="margin-top: 20px;">
+                <strong>Simple explanation:</strong> This shows where pixels would appear vertically on your canvas.<br>
+                • Left side (0) = Top of canvas<br>
+                • Right side (1000) = Bottom of canvas<br>
+                • Gaps/empty areas = blank spots in your image!
+            </div>
+        </div>
+
+        <div class="visualization" style="margin-top: 30px;">
+            <h2>What Y-values does the formula produce?</h2>
+            <canvas id="simple" width="800" height="400"></canvas>
+            <div class="legend" style="margin-top: 20px;">
+                This chart shows every possible (Saturation, Lightness) combination.<br>
+                <strong>Saturation →</strong> Left (0%) to Right (100%)<br>
+                <strong>Each line = different Lightness value</strong> (0%, 25%, 50%, 75%, 100%)
+            </div>
+        </div>
+
+        <div class="stats" id="stats"></div>
+    </div>
+
+    <script>
+        const distributionCanvas = document.getElementById('distribution');
+        const distributionCtx = distributionCanvas.getContext('2d');
+        const simpleCanvas = document.getElementById('simple');
+        const simpleCtx = simpleCanvas.getContext('2d');
+        const statsDiv = document.getElementById('stats');
+
+        const canvasSize = 1000; // Simulated output canvas size
+
+        function calculateY(saturation, lightness) {
+            return (1 - (saturation / 100)) * (lightness / 100) * canvasSize;
+        }
+
+        // Draw distribution histogram
+        function drawDistribution() {
+            const width = distributionCanvas.width;
+            const height = distributionCanvas.height;
+            
+            // Clear
+            distributionCtx.fillStyle = '#000';
+            distributionCtx.fillRect(0, 0, width, height);
+            
+            // Calculate all Y values
+            const bins = 100;
+            const binCounts = new Array(bins).fill(0);
+            const yValues = [];
+            
+            let minY = Infinity;
+            let maxY = -Infinity;
+            
+            for (let s = 0; s <= 100; s++) {
+                for (let l = 0; l <= 100; l++) {
+                    const y = calculateY(s, l);
+                    yValues.push(y);
+                    minY = Math.min(minY, y);
+                    maxY = Math.max(maxY, y);
+                    
+                    const bin = Math.min(Math.floor((y / canvasSize) * bins), bins - 1);
+                    binCounts[bin]++;
+                }
+            }
+            
+            // Draw histogram
+            const maxCount = Math.max(...binCounts);
+            const barWidth = width / bins;
+            
+            for (let i = 0; i < bins; i++) {
+                const barHeight = (binCounts[i] / maxCount) * (height - 60);
+                const x = i * barWidth;
+                const y = height - barHeight - 30;
+                
+                // Color based on whether bin is empty
+                if (binCounts[i] === 0) {
+                    distributionCtx.fillStyle = '#ff6b6b'; // Red for empty
+                } else {
+                    distributionCtx.fillStyle = '#4ecdc4'; // Teal for populated
+                }
+                
+                distributionCtx.fillRect(x, y, barWidth - 1, barHeight);
+            }
+            
+            // Draw axis labels
+            distributionCtx.fillStyle = '#fff';
+            distributionCtx.font = '14px monospace';
+            distributionCtx.fillText('0 (Top)', 10, height - 5);
+            distributionCtx.fillText('500 (Middle)', width / 2 - 40, height - 5);
+            distributionCtx.fillText('1000 (Bottom)', width - 100, height - 5);
+            
+            return { minY, maxY, yValues };
+        }
+
+        // Draw simple line chart
+        function drawSimpleChart() {
+            const width = simpleCanvas.width;
+            const height = simpleCanvas.height;
+            
+            // Clear
+            simpleCtx.fillStyle = '#000';
+            simpleCtx.fillRect(0, 0, width, height);
+            
+            // Draw lines for different lightness values
+            const lightnessValues = [0, 25, 50, 75, 100];
+            const colors = ['#ff6b6b', '#ffd93d', '#4ecdc4', '#6bcf7f', '#a8edea'];
+            
+            lightnessValues.forEach((lightness, idx) => {
+                simpleCtx.strokeStyle = colors[idx];
+                simpleCtx.lineWidth = 3;
+                simpleCtx.beginPath();
+                
+                for (let s = 0; s <= 100; s++) {
+                    const y = calculateY(s, lightness);
+                    const x = (s / 100) * width;
+                    const yPos = height - 40 - ((y / canvasSize) * (height - 60));
+                    
+                    if (s === 0) {
+                        simpleCtx.moveTo(x, yPos);
+                    } else {
+                        simpleCtx.lineTo(x, yPos);
+                    }
+                }
+                simpleCtx.stroke();
+                
+                // Label
+                simpleCtx.fillStyle = colors[idx];
+                simpleCtx.font = '12px monospace';
+                simpleCtx.fillText(`L=${lightness}%`, 10, 20 + (idx * 15));
+            });
+            
+            // Draw axis
+            simpleCtx.strokeStyle = '#666';
+            simpleCtx.lineWidth = 1;
+            simpleCtx.beginPath();
+            simpleCtx.moveTo(0, height - 30);
+            simpleCtx.lineTo(width, height - 30);
+            simpleCtx.stroke();
+            
+            // Axis labels
+            simpleCtx.fillStyle = '#fff';
+            simpleCtx.font = '14px monospace';
+            simpleCtx.fillText('Saturation: 0%', 10, height - 5);
+            simpleCtx.fillText('100%', width - 50, height - 5);
+        }
+
+        // Calculate statistics
+        function calculateStats(minY, maxY, yValues) {
+            const range = maxY - minY;
+            const coverage = (range / canvasSize) * 100;
+            
+            // Count how many unique Y values in bins
+            const bins = 10;
+            const binCounts = new Array(bins).fill(0);
+            yValues.forEach(y => {
+                const bin = Math.min(Math.floor((y / canvasSize) * bins), bins - 1);
+                binCounts[bin]++;
+            });
+
+            const emptyBins = binCounts.filter(count => count === 0).length;
+            
+            let html = '<h2>What does this tell us?</h2>';
+            html += '<div class="stat-row"><span>Canvas Height (simulated):</span><span>' + canvasSize + 'px</span></div>';
+            html += '<div class="stat-row"><span>Lowest Y value (closest to top):</span><span>' + minY.toFixed(2) + 'px</span></div>';
+            html += '<div class="stat-row"><span>Highest Y value (closest to bottom):</span><span>' + maxY.toFixed(2) + 'px</span></div>';
+            html += '<div class="stat-row"><span>Total Y range used:</span><span>' + range.toFixed(2) + 'px</span></div>';
+            html += '<div class="stat-row"><span><strong>% of canvas covered:</strong></span><span><strong>' + coverage.toFixed(1) + '%</strong></span></div>';
+
+            if (coverage < 80) {
+                html += '<div class="warning">';
+                html += '<strong>⚠️ Problem Found!</strong><br>';
+                html += 'The formula only uses ' + coverage.toFixed(1) + '% of the canvas height. ';
+                html += 'This means ' + (100 - coverage).toFixed(1) + '% of your canvas will be empty/blank! ';
+                html += 'That\'s why you\'re seeing blank spots.';
+                html += '</div>';
+            }
+
+            statsDiv.innerHTML = html;
+        }
+
+        // Run visualization
+        const { minY, maxY, yValues } = drawDistribution();
+        drawSimpleChart();
+        calculateStats(minY, maxY, yValues);
+    </script>
+</body>
+</html>

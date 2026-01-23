@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete HSL Color Space</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #fff;
+            font-family: monospace;
+        }
+        #info {
+            margin-bottom: 20px;
+        }
+        canvas {
+            border: 1px solid #444;
+            display: block;
+            margin: 20px 0;
+        }
+        button {
+            background: #4a4a4a;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #5a5a5a;
+        }
+        #status {
+            margin-top: 10px;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h1>Complete HSL Color Space</h1>
+        <p>This image contains one pixel for every possible HSL value:</p>
+        <ul>
+            <li>Hue: 0-360 (361 values)</li>
+            <li>Saturation: 0-100 (101 values)</li>
+            <li>Lightness: 0-100 (101 values)</li>
+            <li><strong>Total: 3,679,561 pixels</strong></li>
+        </ul>
+        <button id="generateBtn">Generate Image</button>
+        <button id="downloadBtn" style="display:none;">Download JPEG</button>
+        <div id="status"></div>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const generateBtn = document.getElementById('generateBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusDiv = document.getElementById('status');
+
+        // Calculate dimensions
+        const totalPixels = 361 * 101 * 101; // 3,679,561
+        // Create a roughly square image
+        const width = 1919;
+        const height = 1918;
+        
+        canvas.width = width;
+        canvas.height = height;
+
+        function hslToRgb(h, s, l) {
+            // h is 0-360, s and l are 0-100
+            s /= 100;
+            l /= 100;
+
+            const c = (1 - Math.abs(2 * l - 1)) * s;
+            const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+            const m = l - c / 2;
+            
+            let r = 0, g = 0, b = 0;
+
+            if (h < 60) {
+                r = c; g = x; b = 0;
+            } else if (h < 120) {
+                r = x; g = c; b = 0;
+            } else if (h < 180) {
+                r = 0; g = c; b = x;
+            } else if (h < 240) {
+                r = 0; g = x; b = c;
+            } else if (h < 300) {
+                r = x; g = 0; b = c;
+            } else {
+                r = c; g = 0; b = x;
+            }
+
+            return [
+                Math.round((r + m) * 255),
+                Math.round((g + m) * 255),
+                Math.round((b + m) * 255)
+            ];
+        }
+
+        function updateStatus(message) {
+            statusDiv.textContent = message;
+        }
+
+        async function generateImage() {
+            generateBtn.disabled = true;
+            updateStatus('Generating image... this may take a moment');
+
+            // Create image data
+            const imageData = ctx.createImageData(width, height);
+            const data = imageData.data;
+
+            let pixelIndex = 0;
+
+            // Iterate through all HSL combinations
+            // Organize by Hue (outer), then Saturation, then Lightness
+            for (let h = 0; h <= 360; h++) {
+                for (let s = 0; s <= 100; s++) {
+                    for (let l = 0; l <= 100; l++) {
+                        if (pixelIndex >= width * height) break;
+
+                        const [r, g, b] = hslToRgb(h, s, l);
+                        const dataIndex = pixelIndex * 4;
+
+                        data[dataIndex] = r;
+                        data[dataIndex + 1] = g;
+                        data[dataIndex + 2] = b;
+                        data[dataIndex + 3] = 255; // Alpha
+
+                        pixelIndex++;
+                    }
+                    if (pixelIndex >= width * height) break;
+                }
+                if (pixelIndex >= width * height) break;
+
+                // Update status periodically
+                if (h % 10 === 0) {
+                    updateStatus(`Generating... ${Math.round((h / 360) * 100)}% complete`);
+                    // Allow UI to update
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+
+            // Put the image data on the canvas
+            ctx.putImageData(imageData, 0, 0);
+
+            updateStatus(`Complete! Generated ${pixelIndex.toLocaleString()} pixels (${width}×${height})`);
+            downloadBtn.style.display = 'inline-block';
+            generateBtn.disabled = false;
+        }
+
+        function downloadImage() {
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'hsl-complete-colorspace.jpg';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                updateStatus('Image downloaded!');
+            }, 'image/jpeg', 0.95);
+        }
+
+        generateBtn.addEventListener('click', generateImage);
+        downloadBtn.addEventListener('click', downloadImage);
+    </script>
+</body>
+</html>

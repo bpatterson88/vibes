@@ -1,0 +1,259 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Courier New', monospace;
+    background: #1a1a2e;
+    color: #fff;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#dropzone {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    transition: background-color 0.3s ease;
+}
+
+#dropzone.dragover {
+    background: rgba(78, 205, 196, 0.1);
+}
+
+#message {
+    font-size: 2em;
+    color: #666;
+    pointer-events: none;
+    transition: color 0.3s ease;
+}
+
+#dropzone.dragover #message {
+    color: #4ecdc4;
+}
+
+canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+}
+
+.controls {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(26, 26, 46, 0.95);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    border-radius: 10px;
+    padding: 20px;
+    min-width: 250px;
+    display: none;
+}
+
+.controls.visible {
+    display: block;
+}
+
+.controls h3 {
+    color: #4ecdc4;
+    margin-bottom: 15px;
+    font-size: 1em;
+}
+
+.control-group {
+    margin-bottom: 20px;
+}
+
+.control-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+    color: #aaa;
+}
+
+.control-group select {
+    width: 100%;
+    padding: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 5px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.9em;
+}
+
+.control-group select:focus {
+    outline: none;
+    border-color: #4ecdc4;
+}
+
+.control-group button {
+    width: 100%;
+    padding: 10px;
+    background: #4ecdc4;
+    border: none;
+    border-radius: 5px;
+    color: #1a1a2e;
+    font-family: inherit;
+    font-size: 0.9em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.3s ease;
+}
+
+.control-group button:hover {
+    background: #3fb8af;
+}
+
+.control-group button:disabled {
+    background: #555;
+    cursor: not-allowed;
+    color: #888;
+}
+
+.control-group input[type="range"] {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.control-group .range-value {
+    display: inline-block;
+    margin-left: 10px;
+    color: #4ecdc4;
+    font-size: 0.85em;
+    min-width: 40px;
+}
+
+.control-group .range-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.control-group .auto-checkbox {
+    display: flex;
+    align-items: center;
+    margin-top: 8px;
+    font-size: 0.85em;
+    color: #aaa;
+    gap: 8px;
+}
+
+.control-group .auto-checkbox input[type="checkbox"] {
+    cursor: pointer;
+}
+
+.control-group .auto-checkbox label {
+    margin: 0;
+    cursor: pointer;
+}
+
+.control-group .auto-checkbox input[type="number"] {
+    width: 60px;
+    padding: 4px 6px;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    color: #fff;
+    font-family: inherit;
+    font-size: 0.85em;
+}
+
+.control-group .auto-checkbox input[type="number"]:focus {
+    outline: none;
+    border-color: #4ecdc4;
+}
+
+.control-group .auto-checkbox .duration-label {
+    font-size: 0.8em;
+    color: #666;
+}
+
+.fps-counter {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(26, 26, 46, 0.95);
+    border: 1px solid rgba(78, 205, 196, 0.3);
+    border-radius: 5px;
+    padding: 10px 15px;
+    color: #4ecdc4;
+    font-size: 0.9em;
+    display: none;
+}
+
+.fps-counter.visible {
+    display: block;
+}
+
+/* Image Selector */
+.image-selector {
+    text-align: center;
+    max-width: 800px;
+    padding: 40px;
+}
+
+.image-selector h2 {
+    color: #4ecdc4;
+    font-size: 2em;
+    margin-bottom: 40px;
+    font-weight: normal;
+}
+
+.image-options {
+    display: flex;
+    gap: 30px;
+    justify-content: center;
+    margin-bottom: 30px;
+}
+
+.image-option {
+    cursor: pointer;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    opacity: 0.7;
+}
+
+.image-option:hover {
+    transform: scale(1.05);
+    opacity: 1;
+}
+
+.image-option img {
+    width: 200px;
+    height: 200px;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 2px solid rgba(78, 205, 196, 0.3);
+    display: block;
+    transition: border-color 0.3s ease;
+}
+
+.image-option:hover img {
+    border-color: #4ecdc4;
+}
+
+.image-option span {
+    display: block;
+    margin-top: 10px;
+    color: #aaa;
+    font-size: 0.9em;
+}
+
+.drop-hint {
+    color: #666;
+    font-size: 1em;
+    margin-top: 20px;
+}
