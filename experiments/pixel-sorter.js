@@ -359,11 +359,9 @@ function handleFile(file) {
 }
 
 function processImage(img) {
-    // Set canvas to square aspect ratio based on pixel count
-    const totalPixels = img.width * img.height;
-    const size = Math.ceil(Math.sqrt(totalPixels));
-    canvas.width = size;
-    canvas.height = size;
+    // Set canvas to match viewport dimensions
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
     
     gl.viewport(0, 0, canvas.width, canvas.height);
     
@@ -375,6 +373,8 @@ function processImage(img) {
     tempCtx.drawImage(img, 0, 0);
     const imageData = tempCtx.getImageData(0, 0, img.width, img.height);
     const data = imageData.data;
+    
+    const totalPixels = img.width * img.height;
     
     // Pre-compute RGB and HSL data for all pixels
     const colorData = [];
@@ -417,26 +417,51 @@ function processImage(img) {
     startRenderLoop();
 }
 
-// Image selector click handlers - use already loaded images
+// Function to load image from assets using fetch
+async function loadImageFromAssets(imagePath) {
+    console.log('Loading image from assets:', imagePath);
+    message.style.display = 'block';
+    message.textContent = 'Loading...';
+    
+    try {
+        // Fetch the image as a blob
+        const response = await fetch(imagePath);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        const imageUrl = URL.createObjectURL(blob);
+        
+        // Create and load image
+        const img = new Image();
+        img.onload = () => {
+            console.log('Image loaded successfully from assets');
+            processImage(img);
+            // Clean up the object URL
+            URL.revokeObjectURL(imageUrl);
+        };
+        img.onerror = (error) => {
+            console.error('Failed to load image:', error);
+            message.style.display = 'block';
+            message.textContent = 'Failed to load image';
+            URL.revokeObjectURL(imageUrl);
+        };
+        img.src = imageUrl;
+    } catch (error) {
+        console.error('Error fetching image:', error);
+        message.style.display = 'block';
+        message.textContent = 'Failed to load image';
+    }
+}
+
+// Image selector click handlers
 if (imageSelector) {
     const imageOptions = imageSelector.querySelectorAll('.image-option');
     imageOptions.forEach(option => {
         option.addEventListener('click', () => {
-            console.log('Image option clicked');
-            message.style.display = 'block';
-            message.textContent = 'Processing...';
-            
-            // Get the already-loaded img element from the selector
-            const imgElement = option.querySelector('img');
-            
-            // Process the image directly (it's already loaded in the DOM)
-            if (imgElement && imgElement.complete) {
-                console.log('Using pre-loaded image');
-                processImage(imgElement);
-            } else {
-                console.error('Image not loaded yet');
-                message.textContent = 'Image not ready';
-            }
+            const imagePath = option.getAttribute('data-image');
+            loadImageFromAssets(imagePath);
         });
     });
 }
