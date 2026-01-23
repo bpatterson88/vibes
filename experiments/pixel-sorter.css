@@ -5,7 +5,7 @@
 }
 
 body {
-    font-family: 'Courier New', monospace;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     background: #1a1a2e;
     color: #fff;
     width: 100vw;
@@ -207,8 +207,8 @@ canvas {
 }
 
 .image-selector h2 {
-    color: #4ecdc4;
-    font-size: 2em;
+    color: #fff;
+    font-size: 16px;
     margin-bottom: 40px;
     font-weight: normal;
 }
@@ -217,43 +217,15 @@ canvas {
     display: flex;
     gap: 30px;
     justify-content: center;
-    margin-bottom: 30px;
 }
 
 .image-option {
     cursor: pointer;
-    transition: transform 0.3s ease, opacity 0.3s ease;
-    opacity: 0.7;
-}
-
-.image-option:hover {
-    transform: scale(1.05);
-    opacity: 1;
 }
 
 .image-option img {
     width: 200px;
     height: 200px;
     object-fit: cover;
-    border-radius: 10px;
-    border: 2px solid rgba(78, 205, 196, 0.3);
     display: block;
-    transition: border-color 0.3s ease;
-}
-
-.image-option:hover img {
-    border-color: #4ecdc4;
-}
-
-.image-option span {
-    display: block;
-    margin-top: 10px;
-    color: #aaa;
-    font-size: 0.9em;
-}
-
-.drop-hint {
-    color: #666;
-    font-size: 1em;
-    margin-top: 20px;
 }
